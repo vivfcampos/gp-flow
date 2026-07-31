@@ -1,0 +1,36 @@
+section[data-testid="stSidebar"],
+section[data-testid="stSidebar"] > div,
+section[data-testid="stSidebar"] > div > div {
+    background-color: #1d2125 !important;
+}
+[data-testid="stSidebarHeader"] {
+    background-color: #1d2125 !important;
+}
+section[data-testid="stSidebar"] a,
+section[data-testid="stSidebar"] a span {
+    color: #c9d1d9 !important;
+}
+section[data-testid="stSidebar"] a:hover {
+    background-color: #282e33 !important;
+}
+section[data-testid="stSidebar"] a[aria-current="page"] {
+    background-color: #1c3a6e !important;
+}
+section[data-testid="stSidebar"] a[aria-current="page"],
+section[data-testid="stSidebar"] a[aria-current="page"] span {
+    color: #4c9aff !important;
+    font-weight: 600 !important;
+}
+section[data-testid="stSidebar"] li:nth-child(4) {
+    margin-top: 8px !important;
+    border-top: 1px solid #30363d !important;
+    padding-top: 8px !important;
+}
+h1 { font-size: 22px !important; font-weight: 700 !important; }
+h2 { font-size: 17px !important; font-weight: 600 !important; }
+h3 { font-size: 15px !important; font-weight: 500 !important; }
+[data-testid="stBaseButton-segmented_controlActive"] {
+    background: #ffffff !important;
+    color: #1971c2 !important;
+    font-weight: 600 !important;
+}

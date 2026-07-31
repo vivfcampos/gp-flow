@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', -apple-system, sans-serif; background: transparent; overflow-x: hidden; }
+
+  .board {
+    display: flex; gap: 10px; width: 100%; padding: 4px 0 8px;
+  }
+  .col {
+    flex: 1 1 0; min-width: 0; border-radius: 8px;
+    background: #f4f5f7; overflow: hidden;
+    border: 2px solid transparent; transition: border-color .15s;
+  }
+  .col.drag-over { border-color: #4a90d9; }
+  .col-header {
+    padding: 10px 14px; color: #fff;
+    font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  }
+  .col-body { padding: 8px; min-height: 400px; }
+
+  .card {
+    background: #fff; border-radius: 6px; padding: 10px 12px;
+    margin-bottom: 6px; cursor: pointer;
+    box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 0 0 1px rgba(0,0,0,.06);
+    border-left: 3px solid #4a90d9;
+    font-size: 12px; line-height: 1.5; color: #172b4d;
+    user-select: none; transition: box-shadow .12s, transform .1s;
+    draggable: true;
+  }
+  .card:hover { box-shadow: 0 4px 10px rgba(0,0,0,.13); background: #f8f9fa; }
+  .card.dragging { opacity: .45; transform: rotate(1.5deg); }
+  .card.drag-target { border-top: 2px solid #0052CC; }
+
+  .card-id { font-size: 10px; color: #6c757d; margin-bottom: 2px; }
+  .card-title { font-weight: 600; font-size: 12px; margin-bottom: 5px; line-height: 1.4; }
+  .card-meta { font-size: 11px; color: #495057; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .badge {
+    display: inline-block; border-radius: 3px; padding: 1px 6px;
+    font-size: 10px; font-weight: 600;
+  }
+  .badge-plan { background: #d0ebff; color: #1864ab; }
+  .badge-para { background: #ffe8cc; color: #d9480f; }
+  .badge-int  { background: #f1f3f5; color: #495057; }
+  .badge-imp  { background: #ffecec; color: #c92a2a; }
+
+  .empty { padding: 16px 10px; text-align: center; color: #adb5bd; font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="board" id="board"></div>
+<script>
+  const CORES = ["#0052CC","#FF991F","#6554C0","#00875A"];
+  let data = null;
+  let dragId = null, dragType = null;
+
+  function badgeEntrada(t) {
+    if (!t) return '';
+    const cls = t === 'Planejada' ? 'badge-plan' : t === 'Paraquedas' ? 'badge-para' : 'badge-int';
+    return `<span class="badge ${cls}">${t}</span>`;
+  }
+
+  function renderCard(item) {
+    const imp = item.impedimento ? `<span class="badge badge-imp">⚠ Imp.</span>` : '';
+    const horas = item.horas > 0 ? `<span>⏱ ${item.horas.toFixed(1)}h</span>` : '';
+    const resp = item.responsavel ? `<span>👤 ${item.responsavel}</span>` : '';
+    const score = item.score ? `<span>⭐ ${item.score}</span>` : '';
+    return `
+      <div class="card" data-id="${item.id}" data-tipo="${item.tipo}"
+           draggable="true"
+           onclick="cardClick(event,'${item.tipo}',${item.id})"
+           ondragstart="dragStart(event,'${item.tipo}',${item.id})"
+           ondragend="dragEnd(event)">
+        <div class="card-id">${item.tipo === 'D' ? 'D' : 'A'}${item.id}</div>
+        <div class="card-title">${item.titulo}</div>
+        <div class="card-meta">
+          ${resp}${badgeEntrada(item.entrada)}${imp}${horas}${score}
+        </div>
+      </div>`;
+  }
+
+  function renderBoard(d) {
+    const board = document.getElementById('board');
+    board.innerHTML = '';
+    d.colunas.forEach((col, i) => {
+      const cards = col.items.map(renderCard).join('') || `<div class="empty">Sem itens</div>`;
+      board.innerHTML += `
+        <div class="col" data-estado="${col.estado}"
+             ondragover="dragOver(event)" ondragleave="dragLeave(event)" ondrop="drop(event,'${col.estado}')">
+          <div class="col-header" style="background:${CORES[i]}">${col.estado.toUpperCase()} (${col.items.length})</div>
+          <div class="col-body">${cards}</div>
+        </div>`;
+    });
+  }
+
+  // ── Drag & Drop ────────────────────────────────────────────────────────────
+  function dragStart(e, tipo, id) {
+    dragId = id; dragType = tipo;
+    e.target.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+  }
+  function dragEnd(e) {
+    e.target.classList.remove('dragging');
+    document.querySelectorAll('.drag-target').forEach(el => el.classList.remove('drag-target'));
+  }
+  function dragOver(e) {
+    e.preventDefault();
+    e.currentTarget.classList.add('drag-over');
+  }
+  function dragLeave(e) {
+    e.currentTarget.classList.remove('drag-over');
+  }
+  function drop(e, novoEstado) {
+    e.preventDefault();
+    e.currentTarget.classList.remove('drag-over');
+    if (dragId === null) return;
+    Streamlit.setComponentValue({ action: 'move', tipo: dragType, id: dragId, estado: novoEstado });
+    dragId = null; dragType = null;
+  }
+
+  // ── Click ──────────────────────────────────────────────────────────────────
+  function cardClick(e, tipo, id) {
+    e.stopPropagation();
+    Streamlit.setComponentValue({ action: 'open', tipo: tipo, id: id });
+  }
+
+  // ── Streamlit bridge ───────────────────────────────────────────────────────
+  function onRender(event) {
+    if (!event.data.args) return;
+    data = event.data.args.data;
+    renderBoard(data);
+    // altura dinâmica
+    const h = document.getElementById('board').scrollHeight + 20;
+    Streamlit.setFrameHeight(Math.max(h, 300));
+  }
+  Streamlit.events.addEventListener(Streamlit.RENDER_EVENT, onRender);
+  Streamlit.setComponentReady();
+</script>
+</body>
+</html>

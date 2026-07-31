@@ -1,0 +1,31 @@
+{
+    "pesos": {
+        "prioridade": 0.35,
+        "urgencia_importancia": 0.25,
+        "aging": 0.20,
+        "tipo": 0.20
+    },
+    "nota_urgencia_importancia": {
+        "1": 10,
+        "2": 7,
+        "3": 4,
+        "4": 1
+    },
+    "legenda_urgencia_importancia": {
+        "1": "Faça na hora (urgente e importante)",
+        "2": "Se programe (importante, não urgente)",
+        "3": "Delegue (urgente, não importante)",
+        "4": "Melhoria / tempo livre / eliminar"
+    },
+    "nota_aging": {
+        "ate_15_dias": 3,
+        "16_a_30_dias": 6,
+        "acima_30_dias": 10
+    },
+    "nota_tipo": {
+        "incidente": 10,
+        "melhoria": 6,
+        "suporte": 3,
+        "outro": 5
+    }
+}
