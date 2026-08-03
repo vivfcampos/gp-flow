@@ -19,8 +19,9 @@ import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
+from config import DATABASE
 from functions.util import agora_br
-from functions.db import get_connection, adicionar_coluna_segura, ler_df
+from functions.db import get_connection, erro_operacional, usando_postgres, ler_df, adicionar_coluna
 
 import pandas as pd
 
@@ -28,11 +29,26 @@ ESTADOS_KANBAN = ["Sprint", "Em andamento", "Pendente Solic./Forn.", "Homologaç
 TIPOS_ENTRADA = ["Planejada", "Paraquedas", "Interna"]
 
 
+# get_connection é fornecido por functions.db (SQLite local ou Postgres/Neon)
+
+
 # ===========================================================================
 # CRIAÇÃO / MIGRAÇÃO DE TABELAS
 # ===========================================================================
 def criar_tabelas():
-    """Cria as tabelas do banco caso ainda não existam. Seguro de rodar várias vezes."""
+    """Cria as tabelas do banco caso ainda não existam. Seguro de rodar várias vezes.
+
+    Otimização: roda só uma vez por sessão do Streamlit (as tabelas não mudam
+    durante o uso). Isso evita repetir CREATE/ALTER a cada carregamento de página,
+    que era lento com o banco remoto.
+    """
+    try:
+        import streamlit as st
+        if st.session_state.get("_tabelas_ok"):
+            return
+    except Exception:
+        st = None
+
     conn = get_connection()
     cur = conn.cursor()
 
@@ -140,10 +156,17 @@ def criar_tabelas():
     conn.close()
     _migrar_colunas()
 
+    try:
+        import streamlit as st
+        st.session_state["_tabelas_ok"] = True
+    except Exception:
+        pass
+
 
 def _migrar_colunas():
     """Migração leve para bancos de versões anteriores (adiciona colunas novas sem apagar dados)."""
     conn = get_connection()
+    cur = conn.cursor()
     colunas_novas = [
         ("score_sugerido", "REAL"),
         ("score_ajustado_manualmente", "INTEGER DEFAULT 0"),
@@ -159,11 +182,13 @@ def _migrar_colunas():
         ("descricao_interna", "TEXT"),
     ]
     for coluna, tipo in colunas_novas:
-        adicionar_coluna_segura(conn, "demandas", coluna, tipo)
-    adicionar_coluna_segura(conn, "importacoes", "ignoradas", "INTEGER DEFAULT 0")
-    adicionar_coluna_segura(conn, "sprints", "status", "TEXT DEFAULT 'Em andamento'")
+        adicionar_coluna(conn, "demandas", coluna, tipo)
+
+    adicionar_coluna(conn, "importacoes", "ignoradas", "INTEGER DEFAULT 0")
+    adicionar_coluna(conn, "sprints", "status", "TEXT DEFAULT 'Em andamento'")
     for coluna in ("encerrada_em", "retro_bem", "retro_dificultou", "retro_acoes", "meta"):
-        adicionar_coluna_segura(conn, "sprints", coluna, "TEXT")
+        adicionar_coluna(conn, "sprints", coluna, "TEXT")
+
     conn.commit()
     conn.close()
 
@@ -314,7 +339,8 @@ def limpar_backlog() -> int:
     """
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute("PRAGMA foreign_keys = ON")
+    if not usando_postgres():
+        cur.execute("PRAGMA foreign_keys = ON")
 
     ids = [
         r[0]
@@ -362,7 +388,8 @@ def excluir_demandas(ids: list) -> dict:
 
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute("PRAGMA foreign_keys = ON")
+    if not usando_postgres():
+        cur.execute("PRAGMA foreign_keys = ON")
 
     marcadores = ",".join("?" * len(ids))
     existentes = {r[0] for r in cur.execute(
@@ -493,12 +520,20 @@ def criar_sprint(nome: str, data_inicio: str = None, data_fim: str = None, meta:
     if sprint_ativa():
         raise ValueError("Já existe uma sprint ativa. Encerre-a antes de criar uma nova.")
     conn = get_connection()
-    cur = conn.execute(
-        "INSERT INTO sprints (nome, data_inicio, data_fim, status, criada_em, meta) "
-        "VALUES (?, ?, ?, 'Planejamento', ?, ?)",
-        (nome, data_inicio, data_fim, agora_br(), (meta or None)),
-    )
-    sprint_id = cur.lastrowid
+    if usando_postgres():
+        cur = conn.execute(
+            "INSERT INTO sprints (nome, data_inicio, data_fim, status, criada_em, meta) "
+            "VALUES (?, ?, ?, 'Planejamento', ?, ?) RETURNING id",
+            (nome, data_inicio, data_fim, agora_br(), (meta or None)),
+        )
+        sprint_id = cur.fetchone()["id"]
+    else:
+        cur = conn.execute(
+            "INSERT INTO sprints (nome, data_inicio, data_fim, status, criada_em, meta) "
+            "VALUES (?, ?, ?, 'Planejamento', ?, ?)",
+            (nome, data_inicio, data_fim, agora_br(), (meta or None)),
+        )
+        sprint_id = cur.lastrowid
     conn.commit()
     conn.close()
     return sprint_id
