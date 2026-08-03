@@ -208,80 +208,26 @@ def ler_df(sql, conn, params=None):
 
 
 # ── Fábrica de conexão ────────────────────────────────────────────────────────
-class _PersistentConnWrapper(_ConnWrapper):
-    """
-    Igual ao _ConnWrapper, mas ignora close() — a conexão é reaproveitada
-    entre chamadas (cacheada por st.cache_resource). Fechar a cada operação
-    seria lento com um banco remoto (novo handshake TCP toda vez).
-    """
-    def close(self):
-        pass  # mantém a conexão viva para reuso
-
-    def _fechar_de_verdade(self):
-        try:
-            self._conn.close()
-        except Exception:
-            pass
-
-
-def _nova_conexao_postgres(url):
-    import psycopg2
-    import psycopg2.extras
-    conn = psycopg2.connect(url, cursor_factory=psycopg2.extras.DictCursor)
-    conn.autocommit = False
-    return conn
-
-
-def _get_conexao_cacheada(url):
-    """
-    Devolve uma conexão Postgres persistente, cacheada pelo Streamlit.
-    Se a conexão tiver caído, recria. Fora do Streamlit, abre uma normal.
-    """
-    try:
-        import streamlit as st
-    except Exception:
-        return _PersistentConnWrapper(_nova_conexao_postgres(url))
-
-    @st.cache_resource(show_spinner=False)
-    def _conexao(_url):
-        return {"conn": _nova_conexao_postgres(_url)}
-
-    slot = _conexao(url)
-    conn = slot["conn"]
-
-    # verifica se a conexão ainda está viva; se caiu, reconecta
-    try:
-        if conn.closed:
-            raise psycopg_erro()
-        cur = conn.cursor()
-        cur.execute("SELECT 1")
-        cur.fetchone()
-        cur.close()
-    except Exception:
-        try:
-            conn.close()
-        except Exception:
-            pass
-        conn = _nova_conexao_postgres(url)
-        slot["conn"] = conn
-
-    return _PersistentConnWrapper(conn)
-
-
-def psycopg_erro():
-    import psycopg2
-    return psycopg2.OperationalError("conexão fechada")
-
-
 def get_connection():
     """
     Devolve uma conexão pronta para uso.
-    - Postgres: conexão persistente reaproveitada (rápido com banco remoto).
-    - SQLite: conexão nova por chamada (é local, custo desprezível).
+
+    Abre uma conexão por chamada. Tentamos reaproveitar uma conexão única
+    (cache_resource), mas isso trava sob concorrência no Streamlit Cloud
+    (várias sessões dividindo a mesma conexão), então voltamos ao modelo
+    seguro: conexão nova por operação, fechada logo em seguida.
     """
     url = _postgres_url()
     if url:
-        return _get_conexao_cacheada(url)
+        import psycopg2
+        import psycopg2.extras
+        conn = psycopg2.connect(
+            url,
+            cursor_factory=psycopg2.extras.DictCursor,
+            connect_timeout=10,
+        )
+        conn.autocommit = False
+        return _ConnWrapper(conn)
 
     # fallback SQLite
     import sqlite3
