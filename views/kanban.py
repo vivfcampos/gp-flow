@@ -24,13 +24,20 @@ from functions.sprint import lista_apelidos, apelido
 _KANBAN_HTML = '<div id="kb-root"></div>'
 
 _KANBAN_CSS = """
-.kb-board { display:flex; gap:10px; width:100%; align-items:flex-start; }
+.kb-board { display:flex; gap:10px; width:100%; align-items:stretch; }
 .kb-col { flex:1 1 0; min-width:0; border-radius:8px; background:#f4f5f7;
-          overflow:hidden; border:2px solid transparent; transition:border-color .15s; }
+          border:2px solid transparent; transition:border-color .15s;
+          display:flex; flex-direction:column;
+          height:74vh; min-height:560px; max-height:860px; }
 .kb-col.kb-over { border-color:#4a90d9; background:#eef4fb; }
-.kb-head { padding:9px 12px; color:#fff; font-size:11px; font-weight:700;
-           letter-spacing:.05em; text-transform:uppercase; }
-.kb-body { padding:8px; min-height:340px; }
+.kb-head { padding:11px 12px; color:#fff; font-size:11px; font-weight:700;
+           letter-spacing:.05em; text-transform:uppercase;
+           flex:0 0 auto; border-radius:8px 8px 0 0;
+           position:sticky; top:0; z-index:2; }
+.kb-body { padding:8px; flex:1 1 auto; overflow-y:auto; overflow-x:hidden;
+           border-radius:0 0 8px 8px; scrollbar-width:thin; }
+.kb-body::-webkit-scrollbar { width:8px; }
+.kb-body::-webkit-scrollbar-thumb { background:#c8cdd3; border-radius:4px; }
 .kb-card { background:#fff; border-radius:6px; padding:9px 11px; margin-bottom:6px;
            cursor:grab; box-shadow:0 1px 2px rgba(0,0,0,.08), 0 0 0 1px rgba(0,0,0,.06);
            border-left:3px solid #4a90d9; font-size:12px; line-height:1.45; color:#172b4d;
