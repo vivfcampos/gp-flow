@@ -21,7 +21,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 from config import DATABASE
 from functions.util import agora_br
-from functions.db import get_connection, erro_operacional, usando_postgres, ler_df, adicionar_coluna, cache_leitura, invalidar_cache
+from functions.db import get_connection, erro_operacional, usando_postgres, ler_df, adicionar_coluna
 
 import pandas as pd
 
@@ -678,7 +678,6 @@ def remover_demanda_da_sprint(demanda_id: int):
     )
     conn.commit()
     conn.close()
-    invalidar_cache()
 
 
 def atualizar_status_kanban(demanda_id: int, novo_status: str):
@@ -691,7 +690,6 @@ def atualizar_status_kanban(demanda_id: int, novo_status: str):
     _abrir_historico(cur, demanda_id, sprint_id, novo_status, agora)
     conn.commit()
     conn.close()
-    invalidar_cache()
 
 
 def atualizar_tipo_entrada(demanda_id: int, tipo_entrada: str):
@@ -699,7 +697,6 @@ def atualizar_tipo_entrada(demanda_id: int, tipo_entrada: str):
     conn.execute("UPDATE demandas SET tipo_entrada = ? WHERE id = ?", (tipo_entrada, demanda_id))
     conn.commit()
     conn.close()
-    invalidar_cache()
 
 
 def atualizar_responsavel_sprint(demanda_id: int, responsavel: str):
@@ -707,7 +704,6 @@ def atualizar_responsavel_sprint(demanda_id: int, responsavel: str):
     conn.execute("UPDATE demandas SET responsavel_sprint = ? WHERE id = ?", (responsavel, demanda_id))
     conn.commit()
     conn.close()
-    invalidar_cache()
 
 
 def atualizar_impedimento(demanda_id: int, impedimento: str):
@@ -715,7 +711,6 @@ def atualizar_impedimento(demanda_id: int, impedimento: str):
     conn.execute("UPDATE demandas SET impedimento = ? WHERE id = ?", (impedimento, demanda_id))
     conn.commit()
     conn.close()
-    invalidar_cache()
 
 
 def atualizar_card_kanban(demanda_id: int, *, responsavel_sprint: str = None,
@@ -741,7 +736,6 @@ def atualizar_card_kanban(demanda_id: int, *, responsavel_sprint: str = None,
             valores.append(valor)
     if not campos:
         conn.close()
-        invalidar_cache()
         return
     campos.append("data_atualizacao = ?")
     valores.append(str(agora_br()))
@@ -751,7 +745,6 @@ def atualizar_card_kanban(demanda_id: int, *, responsavel_sprint: str = None,
     conn.close()
 
 
-@cache_leitura
 def listar_demandas_sprint(sprint_id: int) -> pd.DataFrame:
     conn = get_connection()
     df = ler_df(
@@ -774,10 +767,8 @@ def adicionar_atividade_interna(sprint_id: int, titulo: str, responsavel_sprint:
     """, (sprint_id, titulo, responsavel_sprint, horas_minutos, tipo_entrada))
     conn.commit()
     conn.close()
-    invalidar_cache()
 
 
-@cache_leitura
 def listar_atividades_sprint(sprint_id: int) -> pd.DataFrame:
     conn = get_connection()
     df = ler_df(
@@ -799,7 +790,6 @@ def atualizar_atividade_interna(atividade_id: int, **campos):
     )
     conn.commit()
     conn.close()
-    invalidar_cache()
 
 
 def remover_atividade_interna(atividade_id: int):
