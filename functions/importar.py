@@ -93,10 +93,22 @@ def ler_excel_trace(caminho_ou_arquivo) -> pd.DataFrame:
     df = df[df["id"].notna()]
     df["id"] = df["id"].astype(int)
 
-    # data de criação -> ISO
-    df["data_criacao"] = pd.to_datetime(
-        df["data_criacao"], dayfirst=True, errors="coerce"
-    ).dt.strftime("%Y-%m-%d %H:%M:%S")
+    # data de criação -> ISO.
+    # O Excel do Trace normalmente já entrega a data como texto ISO
+    # ("2026-07-03 14:34:24"), que é inequívoco. Detectamos pelo padrão do
+    # texto (começa com aaaa-mm-dd?) em vez de por tentativa/erro: uma data
+    # como "05/03/2026" é parseável tanto como 5/mar quanto como mai/03, então
+    # não dá pra confiar em "não deu erro" para decidir o formato.
+    texto_original = df["data_criacao"].astype(str).str.strip()
+    eh_iso = texto_original.str.match(r"^\d{4}-\d{2}-\d{2}")
+    datas = pd.Series(pd.NaT, index=df.index, dtype="datetime64[ns]")
+    if eh_iso.any():
+        datas.loc[eh_iso] = pd.to_datetime(texto_original[eh_iso], errors="coerce")
+    if (~eh_iso).any():
+        datas.loc[~eh_iso] = pd.to_datetime(
+            texto_original[~eh_iso], dayfirst=True, errors="coerce"
+        )
+    df["data_criacao"] = datas.dt.strftime("%Y-%m-%d %H:%M:%S")
 
     # urgência/importância: opcional. Se não veio, fica nulo (o score se ajusta).
     df["urgencia_importancia"] = pd.to_numeric(

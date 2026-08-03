@@ -111,6 +111,13 @@ class _CursorWrapper:
     def lastrowid(self):
         return getattr(self._cur, "lastrowid", None)
 
+    def __iter__(self):
+        # sqlite3.Cursor é iterável diretamente (for row in cur.execute(...)).
+        # Sem isso, o wrapper quebra com "object is not iterable" em produção
+        # (Postgres) nos pontos do banco.py que dependem desse padrão — foi a
+        # causa real do erro ao importar a planilha.
+        return iter(self._cur)
+
     def __getattr__(self, name):
         return getattr(self._cur, name)
 

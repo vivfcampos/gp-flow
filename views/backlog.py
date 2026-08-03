@@ -232,13 +232,17 @@ if aba_ativa == ABAS[0]:
                         "atualizadas": atualizadas, "ignoradas": ignoradas,
                     }
                     st.rerun()
-                except Exception:
+                except Exception as erro:
                     st.error("Não foi possível concluir a importação. Verifique o arquivo e tente novamente.")
+                    with st.expander("Detalhes técnicos do erro"):
+                        st.exception(erro)
 
         except ValueError as erro:
             st.error(str(erro))
-        except Exception:
+        except Exception as erro:
             st.error("Não foi possível ler esse arquivo. Confira se é o export correto do Trace GP.")
+            with st.expander("Detalhes técnicos do erro"):
+                st.exception(erro)
 
     if resumo := st.session_state.pop("resumo_importacao", None):
         st.success(

@@ -46,10 +46,10 @@ def main():
         sys.exit(1)
 
     from config import DATABASE
-    from functions.db import get_connection, eh_postgres
+    from functions.db import get_connection, usando_postgres
     from functions.banco import criar_tabelas
 
-    if not eh_postgres():
+    if not usando_postgres():
         print("ERRO: DATABASE_URL foi definida mas a conexão não foi reconhecida como Postgres.")
         sys.exit(1)
 
