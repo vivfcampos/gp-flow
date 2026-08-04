@@ -155,12 +155,38 @@ def criar_tabelas():
     conn.commit()
     conn.close()
     _migrar_colunas()
+    _criar_indices()
 
     try:
         import streamlit as st
         st.session_state["_tabelas_ok"] = True
     except Exception:
         pass
+
+
+def _criar_indices():
+    """
+    Cria índices para os filtros mais usados, acelerando as consultas sem
+    mudar nada do comportamento. CREATE INDEX IF NOT EXISTS é seguro nos dois
+    bancos e não faz nada se o índice já existir.
+    """
+    indices = [
+        "CREATE INDEX IF NOT EXISTS idx_demandas_sprint ON demandas (sprint_id)",
+        "CREATE INDEX IF NOT EXISTS idx_demandas_status ON demandas (status_kanban)",
+        "CREATE INDEX IF NOT EXISTS idx_historico_demanda ON demanda_historico (demanda_id)",
+        "CREATE INDEX IF NOT EXISTS idx_historico_sprint ON demanda_historico (sprint_id)",
+        "CREATE INDEX IF NOT EXISTS idx_atividades_sprint ON atividades_internas (sprint_id)",
+        "CREATE INDEX IF NOT EXISTS idx_fechamento_sprint ON sprint_fechamento_itens (sprint_id)",
+    ]
+    conn = get_connection()
+    cur = conn.cursor()
+    for sql in indices:
+        try:
+            cur.execute(sql)
+        except erro_operacional():
+            pass  # índice já existe ou coluna ausente — ignora com segurança
+    conn.commit()
+    conn.close()
 
 
 def _migrar_colunas():
@@ -323,6 +349,14 @@ def contar_backlog() -> int:
         "SELECT COUNT(*) FROM demandas WHERE sprint_id IS NULL "
         "AND (status_kanban IS NULL OR status_kanban != 'Concluído')"
     ).fetchone()[0]
+    conn.close()
+    return int(n)
+
+
+def contar_total() -> int:
+    """Total de demandas na base — conta no banco em vez de trazer tudo."""
+    conn = get_connection()
+    n = conn.execute("SELECT COUNT(*) FROM demandas").fetchone()[0]
     conn.close()
     return int(n)
 
@@ -707,6 +741,9 @@ def atualizar_responsavel_sprint(demanda_id: int, responsavel: str):
 
 
 def atualizar_impedimento(demanda_id: int, impedimento: str):
+    # evita gravar "nan"/"None"/vazio como texto — normaliza para NULL
+    if impedimento is None or str(impedimento).strip().lower() in ("", "nan", "none", "null"):
+        impedimento = None
     conn = get_connection()
     conn.execute("UPDATE demandas SET impedimento = ? WHERE id = ?", (impedimento, demanda_id))
     conn.commit()
