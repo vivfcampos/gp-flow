@@ -25,7 +25,7 @@ from functions.banco import (
     atualizar_atividade_interna, remover_atividade_interna,
     ESTADOS_KANBAN, TIPOS_ENTRADA,
 )
-from functions.util import formatar_codigo
+from functions.util import formatar_codigo, limpar_texto
 from functions.sprint import lista_apelidos
 from functions.metricas import lead_time_medio_dias, taxa_conclusao, resumo_recorrencia
 from functions.exportar import exportar_sprint_excel
@@ -179,7 +179,7 @@ else:
             "Tipo entrada": df_dem["tipo_entrada"].fillna("Planejada"),
             "Responsável":  df_dem["responsavel_sprint"].fillna(""),
             "Status":       df_dem["status_kanban"].fillna("Sprint"),
-            "Impedimento":  df_dem["impedimento"].fillna(""),
+            "Impedimento":  df_dem["impedimento"].apply(limpar_texto),
         })
 
         gb = GridOptionsBuilder.from_dataframe(df_ag_dem)
@@ -224,7 +224,7 @@ else:
                                 atualizar_responsavel_sprint(int(row["Id"]), row["Responsável"])
                             if row["Status"] != (orig["status_kanban"] or ""):
                                 atualizar_status_kanban(int(row["Id"]), row["Status"])
-                            if row["Impedimento"] != (orig["impedimento"] or ""):
+                            if row["Impedimento"] != limpar_texto(orig["impedimento"]):
                                 atualizar_impedimento(int(row["Id"]), row["Impedimento"] or None)
                         st.session_state.flash_sprint = "Sprint salva!"
                         st.rerun()
@@ -327,7 +327,12 @@ col_exp, col_enc = st.columns(2)
 with col_exp:
     st.download_button(
         "⬇️ Exportar sprint (Excel)",
-        data=exportar_sprint_excel(sprint["nome"], demandas_sprint, atividades),
+        data=exportar_sprint_excel(
+            sprint["nome"], demandas_sprint, atividades,
+            data_inicio=sprint.get("data_inicio"),
+            data_fim=sprint.get("data_fim"),
+            responsaveis=lista_apelidos(),
+        ),
         file_name=f"{sprint['nome'].replace(' ', '_')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )

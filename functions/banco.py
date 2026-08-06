@@ -755,22 +755,40 @@ def atualizar_card_kanban(demanda_id: int, *, responsavel_sprint: str = None,
                           impedimento: str = None, observacoes: str = None,
                           horas_trabalhadas: float = None, descricao_interna: str = None):
     """Atualiza os campos editáveis do card do Kanban."""
+    # normaliza campos de texto: "nan"/"none"/vazio viram NULL (não grava lixo)
+    def _limpar(v):
+        if v is None:
+            return None
+        return None if str(v).strip().lower() in ("", "nan", "none", "null") else v
+
     conn = get_connection()
     campos = []
     valores = []
-    mapa = {
+
+    # campos opcionais: só entram no UPDATE quando informados (None = não mexe)
+    opcionais = {
         "responsavel_sprint":  responsavel_sprint,
         "status_kanban":       status_kanban,
         "tipo_entrada":        tipo_entrada,
-        "impedimento":         impedimento,
-        "observacoes":         observacoes,
         "horas_trabalhadas":   horas_trabalhadas,
-        "descricao_interna":   descricao_interna,
     }
-    for campo, valor in mapa.items():
+    for campo, valor in opcionais.items():
         if valor is not None:
             campos.append(f"{campo} = ?")
             valores.append(valor)
+
+    # campos de texto: quando o modal os envia (não None), grava o valor limpo,
+    # inclusive NULL — assim o usuário consegue APAGAR um impedimento/observação.
+    textos = {
+        "impedimento":       impedimento,
+        "observacoes":       observacoes,
+        "descricao_interna": descricao_interna,
+    }
+    for campo, valor in textos.items():
+        if valor is not None:  # o modal enviou este campo (mesmo que vazio)
+            campos.append(f"{campo} = ?")
+            valores.append(_limpar(valor))  # _limpar transforma vazio/"nan" em NULL
+
     if not campos:
         conn.close()
         return
