@@ -30,6 +30,16 @@ BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR))
 
 TABELAS_EM_ORDEM = [
+    # equipes/quadros primeiro — demandas/sprints referenciam quadro_id,
+    # e usuarios/macroprocessos/sistemas/responsaveis_apelidos referenciam
+    # equipe_id.
+    "equipes",
+    "quadros",
+    "usuarios",
+    "perfis_externos",
+    "macroprocessos",
+    "sistemas",
+    "responsaveis_apelidos",
     "demandas",
     "importacoes",
     "sprints",
@@ -37,6 +47,10 @@ TABELAS_EM_ORDEM = [
     "demanda_historico",
     "sprint_fechamento_itens",
 ]
+
+# Tabelas sem coluna `id` como chave primária — não usam ON CONFLICT (id)
+# nem entram no ajuste de sequence do final.
+TABELAS_CHAVE_NAO_ID = {"perfis_externos": "usuario"}
 
 
 def main():
@@ -91,11 +105,12 @@ def main():
         if ignoradas:
             print(f"  {tabela}: ignorando colunas obsoletas {ignoradas} (não usadas pelo app atual)")
 
+        chave_conflito = TABELAS_CHAVE_NAO_ID.get(tabela, "id")
         placeholders = ", ".join(["%s"] * len(colunas_validas))
         colunas_sql = ", ".join(colunas_validas)
         comando = (
             f"INSERT INTO {tabela} ({colunas_sql}) VALUES ({placeholders}) "
-            f"ON CONFLICT (id) DO NOTHING"
+            f"ON CONFLICT ({chave_conflito}) DO NOTHING"
         )
 
         copiadas = 0
@@ -111,8 +126,9 @@ def main():
     # Ajusta as sequences (SERIAL) do Postgres para continuar depois do maior id
     # copiado — senão o próximo INSERT tentaria reusar um id já existente.
     print("\n2. Ajustando sequências (auto-incremento) do Postgres...")
-    for tabela in ["importacoes", "sprints", "atividades_internas",
-                    "demanda_historico", "sprint_fechamento_itens"]:
+    for tabela in ["equipes", "quadros", "usuarios", "macroprocessos", "sistemas",
+                    "responsaveis_apelidos", "importacoes", "sprints",
+                    "atividades_internas", "demanda_historico", "sprint_fechamento_itens"]:
         cur_destino.execute(f"SELECT COALESCE(MAX(id), 0) FROM {tabela}")
         maior_id = cur_destino.fetchone()[0]
         cur_destino.execute(

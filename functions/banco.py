@@ -615,11 +615,46 @@ def listar_sprints() -> pd.DataFrame:
     return df
 
 
+def _pendentes_nao_realocados(quadro_id: int) -> list:
+    """
+    Itens de sprints já encerradas desse quadro que ficaram pendentes
+    (status_final != 'Concluído' no fechamento) e continuam sem sprint até
+    hoje — ou seja, "esqueceram de ser realocados" pra próxima sprint
+    (ex.: usuário fechou a sprint e criou a próxima sem passar pela
+    sugestão da tela, ou recarregou a página no meio do caminho).
+    Considera só o fechamento mais recente de cada demanda, pra não
+    reprocessar uma demanda que já passou por mais de uma sprint encerrada
+    sem ser realocada.
+    """
+    conn = get_connection()
+    linhas = conn.execute("""
+        SELECT f.demanda_id, f.titulo, f.tipo_entrada, f.status_final,
+               f.responsavel_sprint, f.impedimento
+        FROM sprint_fechamento_itens f
+        JOIN sprints s ON s.id = f.sprint_id
+        WHERE s.quadro_id = ?
+          AND f.status_final != 'Concluído'
+          AND f.id = (SELECT MAX(f2.id) FROM sprint_fechamento_itens f2 WHERE f2.demanda_id = f.demanda_id)
+          AND f.demanda_id IN (
+              SELECT id FROM demandas WHERE quadro_id = ? AND sprint_id IS NULL
+          )
+    """, (quadro_id, quadro_id)).fetchall()
+    conn.close()
+    return [dict(r) for r in linhas]
+
+
 def criar_sprint(quadro_id: int, nome: str, data_inicio: str = None, data_fim: str = None, meta: str = None) -> int:
     """
     Cria uma sprint nova no quadro informado, em estado 'Planejamento'
     (ainda não iniciada). Bloqueia se já existir uma sprint ativa nesse
     quadro (em Planejamento ou Em andamento).
+
+    Ao criar, absorve automaticamente qualquer pendente de uma sprint
+    anterior que tenha ficado sem realocar (ver `_pendentes_nao_realocados`)
+    — preservando a coluna do Kanban, tipo de entrada e responsável que
+    tinha no fechamento. Isso garante que nada some do quadro mesmo se o
+    fluxo de "sugestão" da tela de Sprint não rodar (ex.: página recarregada
+    entre encerrar e criar a próxima).
     """
     if sprint_ativa(quadro_id):
         raise ValueError("Já existe uma sprint ativa. Encerre-a antes de criar uma nova.")
@@ -640,6 +675,13 @@ def criar_sprint(quadro_id: int, nome: str, data_inicio: str = None, data_fim: s
         sprint_id = cur.lastrowid
     conn.commit()
     conn.close()
+
+    for pendente in _pendentes_nao_realocados(quadro_id):
+        adicionar_demanda_a_sprint(
+            pendente["demanda_id"], sprint_id, pendente["tipo_entrada"],
+            pendente["responsavel_sprint"] or "", status_kanban=pendente["status_final"],
+        )
+
     return sprint_id
 
 
@@ -698,7 +740,9 @@ def encerrar_sprint(sprint_id: int, retro_bem: str, retro_dificultou: str, retro
     Encerra a sprint: fica somente leitura. Demandas concluídas ficam
     associadas para sempre a essa sprint (histórico). Demandas pendentes
     voltam ao Backlog (sprint_id limpo) para serem replanejadas.
-    Retorna um resumo com as contagens finais.
+    Retorna um resumo com as contagens finais e `itens_pendentes` (id,
+    titulo, tipo_entrada, responsavel, status) — usado pela tela de Sprint
+    pra sugerir a próxima sprint já pré-carregada com quem não terminou.
     """
     conn = get_connection()
     cur = conn.cursor()
@@ -713,15 +757,25 @@ def encerrar_sprint(sprint_id: int, retro_bem: str, retro_dificultou: str, retro
         "internas": int((itens["tipo_entrada"] == "Interna").sum()),
         "concluidas": int((itens["status_kanban"] == "Concluído").sum()),
         "pendentes": int((itens["status_kanban"] != "Concluído").sum()),
+        "itens_pendentes": [],
     }
 
     for _, item in itens.iterrows():
         cur.execute("""
-            INSERT INTO sprint_fechamento_itens (sprint_id, demanda_id, titulo, tipo_entrada, status_final)
-            VALUES (?, ?, ?, ?, ?)
-        """, (sprint_id, int(item["id"]), item["titulo"], item["tipo_entrada"], item["status_kanban"]))
+            INSERT INTO sprint_fechamento_itens
+                (sprint_id, demanda_id, titulo, tipo_entrada, status_final, responsavel_sprint, impedimento)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (sprint_id, int(item["id"]), item["titulo"], item["tipo_entrada"], item["status_kanban"],
+              item.get("responsavel_sprint"), item.get("impedimento")))
 
         if item["status_kanban"] != "Concluído":
+            resumo["itens_pendentes"].append({
+                "id": int(item["id"]),
+                "titulo": item["titulo"],
+                "tipo_entrada": item["tipo_entrada"],
+                "responsavel": item.get("responsavel_sprint") or "",
+                "status": item["status_kanban"],
+            })
             # pendente: volta pro backlog
             cur.execute("""
                 UPDATE demandas SET

@@ -41,6 +41,10 @@ app.add_middleware(
     SessionMiddleware,
     secret_key=os.environ.get("GPFLOW_SECRET_KEY", "dev-secret-troque-em-producao"),
     session_cookie="gpflow_session",
+    # RENDER é definida automaticamente pelo Render em todo serviço — só exige
+    # cookie só-por-HTTPS lá (domínio público); local (run_server.bat, HTTP
+    # puro) continua funcionando sem essa exigência.
+    https_only=bool(os.environ.get("RENDER")),
 )
 
 app.include_router(auth_router)
