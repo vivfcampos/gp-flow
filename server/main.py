@@ -32,6 +32,7 @@ from server.routes_config import router as config_router
 from server.routes_sessao import router as sessao_router
 from server.routes_equipes import router as equipes_router
 from server.routes_quadros import router as quadros_router
+from server.routes_demandas import router as demandas_router
 
 WEB_DIR = BASE_DIR / "web"
 
@@ -57,6 +58,7 @@ app.include_router(config_router)
 app.include_router(sessao_router)
 app.include_router(equipes_router)
 app.include_router(quadros_router)
+app.include_router(demandas_router)
 
 app.mount("/css", StaticFiles(directory=WEB_DIR / "css"), name="css")
 app.mount("/js", StaticFiles(directory=WEB_DIR / "js"), name="js")

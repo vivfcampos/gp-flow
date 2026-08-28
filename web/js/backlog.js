@@ -221,18 +221,47 @@
         <td data-sort="${escapeHTML(r.sistema)}"><select class="f-sist">${opcoes(listaSist, r.sistema)}</select></td>
         <td data-sort="${escapeHTML(r.observacoes)}"><input type="text" class="f-obs" value="${escapeHTML(r.observacoes)}"></td>
         <td data-sort="${escapeHTML(r.data_importacao || "")}" data-sort-tipo="data-br">${escapeHTML(r.data_importacao || "—")}</td>
+        <td>
+          <button type="button" class="bl-btn-encerrar" title="Marcar como Concluído">✅</button>
+          <button type="button" class="bl-btn-excluir" title="Excluir (só se nunca passou por sprint)">🗑️</button>
+        </td>
       </tr>`;
     }).join("");
     gpSyncDataSort(tbody);
 
     tbody.querySelectorAll("tr").forEach((tr) => {
-      const salvar = () => salvarCuradoriaLinha(Number(tr.dataset.id), tr);
+      const id = Number(tr.dataset.id);
+      const salvar = () => salvarCuradoriaLinha(id, tr);
       tr.querySelector(".f-score").addEventListener("change", salvar);
       tr.querySelector(".f-macro").addEventListener("change", salvar);
       tr.querySelector(".f-sist").addEventListener("change", salvar);
       tr.querySelector(".f-obs").addEventListener("change", salvar);
-      tr.querySelector(".det-titulo-cell").addEventListener("click", () => abrirDetalhes(Number(tr.dataset.id)));
+      tr.querySelector(".det-titulo-cell").addEventListener("click", () => abrirDetalhes(id));
+      tr.querySelector(".bl-btn-encerrar").addEventListener("click", () => encerrarDemanda(id));
+      tr.querySelector(".bl-btn-excluir").addEventListener("click", () => excluirDemanda(id));
     });
+  }
+
+  async function encerrarDemanda(id) {
+    const resp = await fetch(`/api/demandas/${id}/concluir`, { method: "POST" });
+    if (resp.ok) {
+      flash(`✅ Demanda ${id} marcada como Concluído.`);
+      carregarBacklog();
+    } else {
+      flashErro(`Não foi possível encerrar a demanda ${id}.`);
+    }
+  }
+
+  async function excluirDemanda(id) {
+    if (!confirm(`Excluir a demanda ${id} de vez? Essa ação não tem volta.`)) return;
+    const resp = await fetch(`/api/demandas/${id}`, { method: "DELETE" });
+    const dados = await resp.json();
+    if (resp.ok && dados.ok) {
+      flash(`🗑️ Demanda ${id} excluída.`);
+      carregarBacklog();
+    } else {
+      flashErro(dados.erro || `Não foi possível excluir a demanda ${id}.`);
+    }
   }
 
   async function salvarCuradoriaLinha(id, tr) {

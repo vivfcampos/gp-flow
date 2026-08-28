@@ -1002,10 +1002,22 @@ def contagem_sprints_por_demanda(demanda_id: int) -> int:
 
 
 def itens_fechamento_sprint(sprint_id: int) -> pd.DataFrame:
-    """Foto dos itens da sprint no momento do encerramento (usada no Histórico/Relatórios)."""
+    """
+    Foto dos itens da sprint no momento do encerramento (usada no
+    Histórico/Relatórios). `data_importacao` não é salva no fechamento (é
+    um dado da demanda, não do momento do encerramento) — vem via LEFT JOIN
+    com `demandas` (fica NULL para atividades internas, que não têm
+    demanda_id).
+    """
     conn = get_connection()
     df = ler_df(
-        "SELECT * FROM sprint_fechamento_itens WHERE sprint_id = ?", conn, params=(sprint_id,)
+        """
+        SELECT f.*, d.data_importacao
+        FROM sprint_fechamento_itens f
+        LEFT JOIN demandas d ON d.id = f.demanda_id
+        WHERE f.sprint_id = ?
+        """,
+        conn, params=(sprint_id,),
     )
     conn.close()
     return df

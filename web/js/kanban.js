@@ -221,11 +221,14 @@
     if (d.solicitante) info.push(`<b>Solicitante:</b> ${escapeHTML(d.solicitante)}`);
     if (d.responsavel_atendimento) info.push(`<b>Resp. atendimento:</b> ${escapeHTML(d.responsavel_atendimento)}`);
     if (d.data_criacao) info.push(`<b>Criado em:</b> ${escapeHTML(String(d.data_criacao).slice(0, 10))}`);
+    if (d.data_importacao) info.push(`<b>Importado em:</b> ${escapeHTML(d.data_importacao)}`);
     if (d.score) info.push(`<b>Score:</b> ${Number(d.score).toFixed(1)}`);
     $("#card-info").innerHTML = info.join("  ·  ");
 
     $("#card-conf-remover").checked = false;
     $("#card-remover").disabled = true;
+    $("#card-conf-excluir").checked = false;
+    $("#card-excluir").disabled = true;
 
     $("#modal-card").showModal();
   }
@@ -233,6 +236,28 @@
   $("#card-fechar").addEventListener("click", () => $("#modal-card").close());
   $("#card-conf-remover").addEventListener("change", (e) => {
     $("#card-remover").disabled = !e.target.checked;
+  });
+  $("#card-conf-excluir").addEventListener("change", (e) => {
+    $("#card-excluir").disabled = !e.target.checked;
+  });
+
+  $("#card-encerrar").addEventListener("click", async () => {
+    await fetch(`/api/demandas/${state.cardId}/concluir`, { method: "POST" });
+    $("#modal-card").close();
+    flash(`Demanda D${state.cardId} marcada como Concluído.`);
+    carregarBoard();
+  });
+
+  $("#card-excluir").addEventListener("click", async () => {
+    const resp = await fetch(`/api/demandas/${state.cardId}`, { method: "DELETE" });
+    const dados = await resp.json();
+    if (resp.ok && dados.ok) {
+      $("#modal-card").close();
+      flash(`Demanda D${state.cardId} excluída.`);
+      carregarBoard();
+    } else {
+      flash(dados.erro || "Não foi possível excluir essa demanda.");
+    }
   });
 
   $("#card-salvar").addEventListener("click", async () => {

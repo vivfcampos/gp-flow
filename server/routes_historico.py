@@ -33,6 +33,7 @@ def _grupo(itens: pd.DataFrame, tipo: str) -> list:
             "id": int(did) if did is not None else None,
             "titulo": _limpo(row["titulo"]),
             "status_final": _limpo(row["status_final"]),
+            "data_importacao": _limpo(row.get("data_importacao")),
         })
     return resultado
 

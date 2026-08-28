@@ -144,6 +144,7 @@ def obter_itens(request: Request):
             "responsavel": _limpo(d.get("responsavel_sprint")) or "",
             "status": _limpo(d.get("status_kanban")) or "Sprint",
             "impedimento": limpar_texto(d.get("impedimento")),
+            "data_importacao": _limpo(d.get("data_importacao")),
         })
 
     lista_ativ = []

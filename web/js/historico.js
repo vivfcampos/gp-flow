@@ -33,9 +33,13 @@
 
   function tabelaItens(itens) {
     if (!itens.length) return '<p class="gp-caption">Nenhum item</p>';
-    let html = '<table class="gp-table"><thead><tr><th>Id</th><th>Título</th><th>Status final</th></tr></thead><tbody>';
+    let html = '<table class="gp-table"><thead><tr><th>Id</th><th>Título</th><th>Status final</th><th>Importado em</th><th>Ações</th></tr></thead><tbody>';
     itens.forEach((i) => {
-      html += `<tr><td>${i.id ?? "—"}</td><td>${escapeHTML(i.titulo)}</td><td>${badgeStatus(i.status_final)}</td></tr>`;
+      const acoes = i.id
+        ? `<button type="button" class="hi-btn-encerrar" data-id="${i.id}" title="Marcar como Concluído">✅</button>
+           <button type="button" class="hi-btn-excluir" data-id="${i.id}" title="Excluir (só se nunca passou por sprint)">🗑️</button>`
+        : ""; // atividade interna não tem demanda_id — nada pra encerrar/excluir aqui
+      html += `<tr><td>${i.id ?? "—"}</td><td>${escapeHTML(i.titulo)}</td><td>${badgeStatus(i.status_final)}</td><td>${escapeHTML(i.data_importacao || "—")}</td><td>${acoes}</td></tr>`;
     });
     return html + "</tbody></table>";
   }
@@ -108,6 +112,33 @@
           carregar();
         } else {
           mostrarFlash("Não foi possível excluir.");
+        }
+      });
+    });
+
+    lista.querySelectorAll(".hi-btn-encerrar").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const id = btn.dataset.id;
+        const resp = await fetch(`/api/demandas/${id}/concluir`, { method: "POST" });
+        if (resp.ok) {
+          mostrarFlash(`✅ Demanda ${id} marcada como Concluído.`);
+          carregar();
+        } else {
+          mostrarFlash(`Não foi possível encerrar a demanda ${id}.`);
+        }
+      });
+    });
+    lista.querySelectorAll(".hi-btn-excluir").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const id = btn.dataset.id;
+        if (!confirm(`Excluir a demanda ${id} de vez? Essa ação não tem volta.`)) return;
+        const resp = await fetch(`/api/demandas/${id}`, { method: "DELETE" });
+        const dados = await resp.json();
+        if (resp.ok && dados.ok) {
+          mostrarFlash(`🗑️ Demanda ${id} excluída.`);
+          carregar();
+        } else {
+          mostrarFlash(dados.erro || `Não foi possível excluir a demanda ${id}.`);
         }
       });
     });
