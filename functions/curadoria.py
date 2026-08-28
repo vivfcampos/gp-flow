@@ -2,7 +2,7 @@
 Curadoria — GP Flow v0.4.0
 
 Calcula o "score sugerido" de priorização de cada demanda, combinando:
-  - Prioridade do Trace           (peso configurável em config/score.json)
+  - Prioridade do Trace           (peso configurável por equipe)
   - Urgência/Importância do Trace (escala de Eisenhower, 1 = faça na hora)
   - Aging (dias parado sem avançar)
   - Tipo (Incidente > Melhoria > Suporte)
@@ -10,8 +10,12 @@ Calcula o "score sugerido" de priorização de cada demanda, combinando:
 O score final que vale pra priorização é o que fica gravado na demanda —
 por padrão igual ao sugerido, mas pode ser ajustado manualmente na tela
 de Curadoria (modelo híbrido).
+
+Macroprocessos, sistemas e os pesos/escalas do score são configuração por
+EQUIPE (tabelas `macroprocessos`/`sistemas`/`equipes.score_config_json` em
+functions/banco.py — migrados dos antigos config/*.json globais na Fase 5
+da migração multi-equipe). Toda função aqui recebe `equipe_id`.
 """
-import json
 import re
 import sys
 import unicodedata
@@ -20,11 +24,10 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.append(str(Path(__file__).parent.parent))
-from config import BASE_DIR
-
-ARQUIVO_SCORE = BASE_DIR / "config" / "score.json"
-ARQUIVO_MACROPROCESSOS = BASE_DIR / "config" / "macroprocessos.json"
-ARQUIVO_SISTEMAS = BASE_DIR / "config" / "sistemas.json"
+from functions.banco import (
+    listar_macroprocessos, criar_macroprocesso, listar_sistemas, criar_sistema,
+    obter_config_score, salvar_config_score,
+)
 
 _CONFIG_PADRAO = {
     "pesos": {"prioridade": 0.35, "urgencia_importancia": 0.25, "aging": 0.20, "tipo": 0.20},
@@ -47,54 +50,40 @@ def _normalizar(texto: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Configuração (pesos e escalas) — editável em config/score.json
+# Configuração (pesos e escalas) — por equipe
 # ---------------------------------------------------------------------------
-def carregar_config_score() -> dict:
-    if ARQUIVO_SCORE.exists():
-        with open(ARQUIVO_SCORE, encoding="utf-8") as f:
-            return json.load(f)
-    return _CONFIG_PADRAO
+def carregar_config_score(equipe_id: int) -> dict:
+    config = obter_config_score(equipe_id)
+    return config if config else dict(_CONFIG_PADRAO)
 
 
-def legenda_urgencia_importancia() -> dict:
-    return carregar_config_score().get("legenda_urgencia_importancia", _CONFIG_PADRAO["legenda_urgencia_importancia"])
+def salvar_config_score_equipe(equipe_id: int, config: dict):
+    salvar_config_score(equipe_id, config)
+
+
+def legenda_urgencia_importancia(equipe_id: int) -> dict:
+    return carregar_config_score(equipe_id).get(
+        "legenda_urgencia_importancia", _CONFIG_PADRAO["legenda_urgencia_importancia"]
+    )
 
 
 # ---------------------------------------------------------------------------
-# Listas editáveis: macroprocessos e sistemas
+# Listas editáveis: macroprocessos e sistemas — por equipe
 # ---------------------------------------------------------------------------
-def _carregar_lista(caminho: Path) -> list:
-    if caminho.exists():
-        with open(caminho, encoding="utf-8") as f:
-            return json.load(f)
-    return []
+def carregar_macroprocessos(equipe_id: int) -> list:
+    return listar_macroprocessos(equipe_id)
 
 
-def _salvar_lista(caminho: Path, lista: list):
-    with open(caminho, "w", encoding="utf-8") as f:
-        json.dump(sorted(set(lista)), f, ensure_ascii=False, indent=4)
+def adicionar_macroprocesso(equipe_id: int, nome: str):
+    criar_macroprocesso(equipe_id, nome)
 
 
-def carregar_macroprocessos() -> list:
-    return _carregar_lista(ARQUIVO_MACROPROCESSOS)
+def carregar_sistemas(equipe_id: int) -> list:
+    return listar_sistemas(equipe_id)
 
 
-def adicionar_macroprocesso(nome: str):
-    lista = carregar_macroprocessos()
-    if nome and nome not in lista:
-        lista.append(nome)
-        _salvar_lista(ARQUIVO_MACROPROCESSOS, lista)
-
-
-def carregar_sistemas() -> list:
-    return _carregar_lista(ARQUIVO_SISTEMAS)
-
-
-def adicionar_sistema(nome: str):
-    lista = carregar_sistemas()
-    if nome and nome not in lista:
-        lista.append(nome)
-        _salvar_lista(ARQUIVO_SISTEMAS, lista)
+def adicionar_sistema(equipe_id: int, nome: str):
+    criar_sistema(equipe_id, nome)
 
 
 # ---------------------------------------------------------------------------
@@ -112,21 +101,21 @@ def nota_prioridade(prioridade: str) -> float:
     return max(0.0, min(10.0, numero * 2.5))
 
 
-def nota_urgencia(urgencia) -> float:
+def nota_urgencia(urgencia, equipe_id: int) -> float:
     """Converte a Urgência/Importância (escala de Eisenhower 1-4) pra nota 0-10."""
     if urgencia is None or pd.isna(urgencia):
         return 5.0
-    config = carregar_config_score().get("nota_urgencia_importancia", _CONFIG_PADRAO["nota_urgencia_importancia"])
+    config = carregar_config_score(equipe_id).get("nota_urgencia_importancia", _CONFIG_PADRAO["nota_urgencia_importancia"])
     chave = str(int(urgencia)) if str(urgencia).strip() else None
     return float(config.get(chave, 5.0))
 
 
-def nota_aging(aging_dias) -> float:
+def nota_aging(aging_dias, equipe_id: int) -> float:
     """Converte o aging (dias parado) pra nota 0-10, usando as mesmas faixas do Backlog."""
     if aging_dias is None or pd.isna(aging_dias):
         return 5.0
     aging_dias = int(aging_dias)
-    config = carregar_config_score().get("nota_aging", _CONFIG_PADRAO["nota_aging"])
+    config = carregar_config_score(equipe_id).get("nota_aging", _CONFIG_PADRAO["nota_aging"])
     if aging_dias <= 15:
         return float(config.get("ate_15_dias", 3))
     if aging_dias <= 30:
@@ -146,19 +135,19 @@ def classificar_tipo(tipo: str) -> str:
     return "outro"
 
 
-def nota_tipo(tipo: str) -> float:
+def nota_tipo(tipo: str, equipe_id: int) -> float:
     categoria = classificar_tipo(tipo)
-    config = carregar_config_score().get("nota_tipo", _CONFIG_PADRAO["nota_tipo"])
+    config = carregar_config_score(equipe_id).get("nota_tipo", _CONFIG_PADRAO["nota_tipo"])
     return float(config.get(categoria, 5.0))
 
 
 # ---------------------------------------------------------------------------
 # Score final
 # ---------------------------------------------------------------------------
-def calcular_score_sugerido(prioridade: str, urgencia, aging_dias, tipo: str) -> float:
+def calcular_score_sugerido(prioridade: str, urgencia, aging_dias, tipo: str, equipe_id: int) -> float:
     """
     Calcula o score sugerido (0 a 10) combinando os 4 fatores com os pesos
-    de config/score.json. Esse é só o "palpite" do sistema — o valor que
+    configurados pra equipe. Esse é só o "palpite" do sistema — o valor que
     vale pra priorização é o score gravado na demanda, que pode ter sido
     ajustado manualmente na tela de Curadoria.
 
@@ -167,7 +156,7 @@ def calcular_score_sugerido(prioridade: str, urgencia, aging_dias, tipo: str) ->
     três fatores, para o score refletir só o que temos (em vez de puxar tudo
     para uma nota neutra e distorcer a priorização).
     """
-    pesos = carregar_config_score().get("pesos", _CONFIG_PADRAO["pesos"])
+    pesos = carregar_config_score(equipe_id).get("pesos", _CONFIG_PADRAO["pesos"])
     peso_prio = pesos.get("prioridade", 0)
     peso_urg = pesos.get("urgencia_importancia", 0)
     peso_aging = pesos.get("aging", 0)
@@ -187,19 +176,19 @@ def calcular_score_sugerido(prioridade: str, urgencia, aging_dias, tipo: str) ->
 
     score = (
         nota_prioridade(prioridade) * peso_prio
-        + (nota_urgencia(urgencia) * peso_urg if peso_urg else 0)
-        + nota_aging(aging_dias) * peso_aging
-        + nota_tipo(tipo) * peso_tipo
+        + (nota_urgencia(urgencia, equipe_id) * peso_urg if peso_urg else 0)
+        + nota_aging(aging_dias, equipe_id) * peso_aging
+        + nota_tipo(tipo, equipe_id) * peso_tipo
     )
     return round(score, 1)
 
 
-def calcular_scores_dataframe(df: pd.DataFrame) -> pd.Series:
+def calcular_scores_dataframe(df: pd.DataFrame, equipe_id: int) -> pd.Series:
     """Aplica calcular_score_sugerido em cada linha de um DataFrame de demandas (já com aging_dias)."""
     return df.apply(
         lambda row: calcular_score_sugerido(
             row.get("prioridade"), row.get("urgencia_importancia"),
-            row.get("aging_dias"), row.get("tipo"),
+            row.get("aging_dias"), row.get("tipo"), equipe_id,
         ),
         axis=1,
     )

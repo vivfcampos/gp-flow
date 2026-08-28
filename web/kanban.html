@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Kanban — GP Flow</title>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/kanban.css">
+</head>
+<body>
+  <nav class="gp-topbar">
+    <span class="gp-brand">📊 GP Flow</span>
+    <a href="/backlog">📥 Backlog</a>
+    <a href="/sprint">▶️ Sprint</a>
+    <a class="ativo" href="/kanban">📊 Kanban</a>
+    <a href="/historico">🕐 Histórico</a>
+    <a href="/administracao">🛠️ Administração</a>
+    <span class="gp-spacer"></span>
+    <select id="gp-quadro-select" title="Quadro ativo"></select>
+    <a href="#" id="btn-logout">🚪 Sair</a>
+  </nav>
+
+  <div class="gp-page">
+    <h1>Kanban</h1>
+    <div class="gp-flash" id="flash" hidden></div>
+    <p id="sprint-caption" class="gp-caption"></p>
+
+    <div class="kb-toolbar">
+      <div class="kb-filtro" id="filtro-resp">
+        <button type="button" class="kb-filtro-btn">Filtrar por responsável ▾</button>
+        <div class="kb-filtro-menu"></div>
+      </div>
+      <div class="kb-filtro" id="filtro-tipo">
+        <button type="button" class="kb-filtro-btn">Filtrar por tipo ▾</button>
+        <div class="kb-filtro-menu"></div>
+      </div>
+      <label class="kb-toggle">
+        <input type="checkbox" id="toggle-daily">
+        ⏱️ Modo Daily
+      </label>
+      <button type="button" id="btn-nova-atividade">➕ Nova atividade interna</button>
+    </div>
+
+    <div class="kb-popover" id="popover-atividade" hidden>
+      <p class="gp-caption">Cria uma atividade interna (cerimônia, feriado, reunião…) já na sprint ativa.</p>
+      <div class="kb-form-row">
+        <input type="text" id="ativ-titulo" placeholder="Cerimônia Ágil, Feriado…">
+      </div>
+      <div class="kb-form-row">
+        <select id="ativ-resp"></select>
+        <select id="ativ-tipo"></select>
+      </div>
+      <button type="button" class="primary" id="ativ-criar" disabled>➕ Criar</button>
+    </div>
+
+    <div id="board-quadro"></div>
+    <div id="board-daily" hidden></div>
+  </div>
+
+  <dialog id="modal-card">
+    <form method="dialog" id="form-card">
+      <h2 id="card-titulo">📋 Detalhes da demanda</h2>
+      <div class="kb-meta-grid" id="card-meta"></div>
+      <hr>
+      <div class="gp-form-grid-2">
+        <div class="kb-field">
+          <label>👤 Responsável</label>
+          <select id="card-responsavel"></select>
+        </div>
+        <div class="kb-field">
+          <label>📍 Status</label>
+          <select id="card-status"></select>
+        </div>
+      </div>
+      <div class="gp-form-grid-2">
+        <div class="kb-field">
+          <label>📋 Tipo de entrada</label>
+          <select id="card-tipo"></select>
+        </div>
+        <div class="kb-field">
+          <label>⏱️ Horas trabalhadas</label>
+          <input type="number" id="card-horas" min="0" step="0.5">
+        </div>
+      </div>
+      <div class="kb-field">
+        <label>🚧 Impedimento</label>
+        <input type="text" id="card-impedimento">
+      </div>
+      <div class="kb-field">
+        <label>📝 Observações</label>
+        <textarea id="card-observacoes" rows="3"></textarea>
+      </div>
+      <div class="kb-field">
+        <label>📄 Descrição interna (notas da equipe)</label>
+        <textarea id="card-descricao" rows="3"></textarea>
+      </div>
+      <p class="gp-caption" id="card-info"></p>
+      <div class="kb-modal-actions">
+        <button type="button" class="primary" id="card-salvar">💾 Salvar</button>
+        <button type="button" id="card-fechar">✖️ Fechar</button>
+      </div>
+      <hr>
+      <p class="gp-caption">Tirar da sprint devolve a demanda ao Backlog (não exclui).</p>
+      <label class="kb-toggle">
+        <input type="checkbox" id="card-conf-remover">
+        Confirmo devolver ao Backlog
+      </label>
+      <div class="kb-modal-actions">
+        <button type="button" id="card-remover" disabled>↩️ Voltar ao Backlog</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/js/gp-table-sort.js"></script>
+  <script src="/js/gp-quadro-selector.js"></script>
+  <script src="/js/kanban.js"></script>
+</body>
+</html>

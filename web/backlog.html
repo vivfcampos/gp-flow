@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Backlog — GP Flow</title>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/kanban.css">
+<style>
+  .bl-form-row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; max-width: 420px; }
+  .bl-inline { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .bl-search { max-width: 420px; margin-bottom: 10px; }
+  .bl-search input { width: 100%; }
+</style>
+</head>
+<body>
+  <nav class="gp-topbar">
+    <a class="ativo" href="/backlog">📥 Backlog</a>
+    <a href="/sprint">▶️ Sprint</a>
+    <a href="/kanban">📊 Kanban</a>
+    <a href="/historico">🕐 Histórico</a>
+    <a href="/administracao">🛠️ Administração</a>
+    <span class="gp-spacer"></span>
+    <select id="gp-quadro-select" title="Quadro ativo"></select>
+    <a href="#" id="btn-logout">🚪 Sair</a>
+  </nav>
+
+  <div class="gp-page">
+    <h1>Backlog</h1>
+    <div class="gp-flash" id="flash" hidden></div>
+    <div class="gp-flash gp-flash-erro" id="flash-erro" hidden></div>
+
+    <div class="gp-tabs">
+      <button type="button" class="aba-btn" data-aba="importar">📥 Importar</button>
+      <button type="button" class="aba-btn ativo" data-aba="classificar">🏷️ Classificar</button>
+      <button type="button" class="aba-btn" data-aba="planejar">🏃 Planejar sprint</button>
+    </div>
+
+    <!-- ══ ABA IMPORTAR ══════════════════════════════════════════════════ -->
+    <section id="aba-importar" hidden>
+      <h3>Importar export do Trace GP</h3>
+      <input type="file" id="importar-arquivo" accept=".xlsx,.xls">
+      <div id="importar-preview" hidden>
+        <p class="gp-caption" id="importar-total"></p>
+        <table class="gp-table" id="tabela-preview">
+          <thead><tr><th>Id</th><th>Título</th><th>Prioridade</th><th>Estado</th><th>Responsável</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="kb-modal-actions">
+          <button type="button" class="primary" id="btn-confirmar-importacao">✅ Confirmar importação</button>
+          <button type="button" id="btn-cancelar-importacao">🧹 Limpar arquivo selecionado</button>
+        </div>
+      </div>
+      <p class="gp-caption" id="ultima-importacao"></p>
+      <hr>
+      <a href="/api/backlog/exportar.xlsx"><button type="button">⬇️ Exportar Backlog (Excel)</button></a>
+      <details class="gp-expander" style="margin-top:14px;">
+        <summary>⚠️ Limpar demandas do Backlog</summary>
+        <div class="gp-flash gp-flash-erro" id="limpar-aviso"></div>
+        <label class="gp-checkbox-row"><input type="checkbox" id="conf-limpar"> Entendo que isso apaga todas as demandas do Backlog</label>
+        <button type="button" class="primary" id="btn-limpar" disabled>🗑️ Limpar Backlog</button>
+      </details>
+    </section>
+
+    <!-- ══ ABA CLASSIFICAR ═══════════════════════════════════════════════ -->
+    <section id="aba-classificar">
+      <details class="gp-expander">
+        <summary>ℹ️ Como o score é calculado</summary>
+        <div id="legenda-score"></div>
+      </details>
+      <details class="gp-expander">
+        <summary>⚙️ Macroprocessos e sistemas cadastrados</summary>
+        <div class="sp-form-row-2" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+          <div>
+            <p><b>Macroprocessos</b></p>
+            <p class="gp-caption" id="lista-macroprocessos"></p>
+            <div class="bl-inline">
+              <input type="text" id="novo-macro" placeholder="Adicionar novo macroprocesso">
+              <button type="button" id="btn-add-macro" disabled>➕</button>
+            </div>
+          </div>
+          <div>
+            <p><b>Sistemas</b></p>
+            <p class="gp-caption" id="lista-sistemas"></p>
+            <div class="bl-inline">
+              <input type="text" id="novo-sistema" placeholder="Adicionar novo sistema">
+              <button type="button" id="btn-add-sistema" disabled>➕</button>
+            </div>
+          </div>
+        </div>
+      </details>
+      <p class="gp-caption">👤 O apelido de cada responsável agora é cadastrado direto no perfil dele, em <b>Administração &gt; Usuários</b>.</p>
+
+      <div class="bl-search"><input type="text" id="busca-classificar" placeholder="🔍 Pesquisar por título ou Id(s)"></div>
+      <p class="gp-caption" id="contagem-classificar"></p>
+
+      <table class="gp-table" id="tabela-classificar">
+        <thead><tr><th>Id</th><th>Título</th><th>Estado</th><th>Prioridade</th><th>Score sug.</th><th>Score</th><th>Aging</th><th>Macroprocesso</th><th>Sistema</th><th>Observações</th><th>Importado em</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- ══ ABA PLANEJAR ══════════════════════════════════════════════════ -->
+    <section id="aba-planejar" hidden>
+      <p class="gp-caption" id="planejar-caption"></p>
+      <div id="planejar-nova-atividade" hidden>
+        <details class="gp-expander">
+          <summary>➕ Nova atividade interna</summary>
+          <div class="bl-inline">
+            <input type="text" id="pj-ativ-titulo" placeholder="Cerimônia Ágil, Feriado…">
+            <select id="pj-ativ-resp"></select>
+            <select id="pj-ativ-tipo"></select>
+            <button type="button" class="primary" id="pj-ativ-criar" disabled>➕ Criar</button>
+          </div>
+        </details>
+      </div>
+
+      <div class="gp-flash gp-flash-erro" id="planejar-higiene" hidden></div>
+
+      <table class="gp-table" id="tabela-planejar">
+        <thead><tr><th></th><th>Id</th><th>Título</th><th>Score</th><th>Tipo entrada</th><th>Responsável</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <button type="button" class="primary" id="btn-enviar-sprint" disabled>➕ Enviar 0 demanda(s)</button>
+    </section>
+  </div>
+
+  <dialog id="modal-detalhes">
+    <form method="dialog" id="form-detalhes">
+      <h2 id="det-titulo"></h2>
+      <div class="kb-meta-grid" id="det-meta"></div>
+      <hr>
+      <div class="gp-form-grid-2">
+        <div class="kb-field"><label>Macroprocesso</label><select id="det-macro"></select></div>
+        <div class="kb-field"><label>Sistema</label><select id="det-sist"></select></div>
+      </div>
+      <div class="kb-field"><label>Score</label><input type="number" id="det-score" min="0" max="10" step="0.5"></div>
+      <div class="kb-field"><label>Observações</label><textarea id="det-obs" rows="3"></textarea></div>
+      <div class="kb-modal-actions">
+        <button type="button" class="primary" id="det-salvar">💾 Salvar classificação</button>
+        <button type="button" id="det-fechar">✖️ Fechar</button>
+      </div>
+      <div id="det-sprint-bloco" hidden>
+        <hr>
+        <p class="gp-caption" id="det-sprint-info"></p>
+        <div class="bl-inline">
+          <select id="det-sprint-resp"></select>
+          <button type="button" class="primary" id="det-sprint-enviar">🚀 Enviar</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="modal-criar-sprint">
+    <form method="dialog" id="form-criar-sprint">
+      <h2>🚀 Criar sprint e enviar demandas</h2>
+      <p class="gp-caption" id="cs-info"></p>
+      <div class="kb-field"><label>Nome da sprint</label><input type="text" id="cs-nome" placeholder="Sprint 12 — 06/07 a 17/07"></div>
+      <div class="kb-field"><label>🎯 Meta da sprint (objetivo)</label><input type="text" id="cs-meta"></div>
+      <div class="gp-form-grid-2">
+        <div class="kb-field"><label>Início</label><input type="date" id="cs-inicio"></div>
+        <div class="kb-field"><label>Fim</label><input type="date" id="cs-fim"></div>
+      </div>
+      <div class="kb-modal-actions">
+        <button type="button" class="primary" id="cs-criar" disabled>🚀 Criar e enviar</button>
+        <button type="button" id="cs-cancelar">✖️ Cancelar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/js/gp-table-sort.js"></script>
+  <script src="/js/gp-quadro-selector.js"></script>
+  <script src="/js/backlog.js"></script>
+</body>
+</html>

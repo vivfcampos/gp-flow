@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Administração — GP Flow</title>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/usuarios.css">
+<style>
+  .cf-form { max-width: 560px; }
+  .cf-modo { display: flex; flex-direction: column; gap: 10px; margin: 14px 0 20px; }
+  .cf-modo label {
+    display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px;
+    border: 1px solid var(--gp-border); border-radius: var(--gp-radius); cursor: pointer;
+  }
+  .cf-modo label:has(input:checked) { border-color: var(--gp-primary); background: #eef4fb; }
+  .cf-modo input { margin-top: 3px; }
+  .cf-modo .titulo { font-weight: 600; font-size: 13px; }
+  .cf-modo .desc { font-size: 12px; color: var(--gp-text-muted); }
+  .cf-ldap-campos { display: flex; flex-direction: column; gap: 12px; margin: 4px 0 18px; padding-left: 4px; }
+  .cf-ldap-campos.desligado { opacity: .45; pointer-events: none; }
+  .cf-field { display: flex; flex-direction: column; gap: 4px; }
+  .cf-field label { font-size: 12px; color: var(--gp-text-muted); }
+  .cf-field input { width: 100%; }
+  .cf-teste-resultado { font-size: 12px; margin-top: 6px; }
+  .cf-teste-resultado.ok { color: #2b8a3e; }
+  .cf-teste-resultado.erro { color: #c92a2a; }
+  .pm-placeholder {
+    border: 1px dashed var(--gp-border); border-radius: var(--gp-radius);
+    padding: 24px; text-align: center; color: var(--gp-text-muted); max-width: 560px;
+  }
+  .eq-form { display: flex; gap: 8px; margin-bottom: 16px; max-width: 420px; }
+  .eq-form input { flex: 1; }
+  .eq-quadros-table { max-width: 480px; }
+  .eq-quadros-table input[type="text"] { border: 1px solid transparent; background: transparent; width: 100%; }
+  .eq-quadros-table input[type="text"]:hover, .eq-quadros-table input[type="text"]:focus {
+    border-color: var(--gp-border); background: #fff;
+  }
+  .eq-quadro-novo { display: flex; gap: 8px; margin-top: 10px; max-width: 420px; }
+  .eq-quadro-novo input { flex: 1; }
+  .eq-btn-icone { padding: 3px 8px; font-size: 12px; }
+  .pm-tabela { max-width: 700px; }
+</style>
+</head>
+<body>
+  <nav class="gp-topbar">
+    <span class="gp-brand">📊 GP Flow</span>
+    <a href="/backlog">📥 Backlog</a>
+    <a href="/sprint">▶️ Sprint</a>
+    <a href="/kanban">📊 Kanban</a>
+    <a href="/historico">🕐 Histórico</a>
+    <a class="ativo" href="/administracao">🛠️ Administração</a>
+    <span class="gp-spacer"></span>
+    <a href="#" id="btn-logout">🚪 Sair</a>
+  </nav>
+
+  <div class="gp-page">
+    <h1>Administração</h1>
+    <div class="gp-flash" id="flash" hidden></div>
+    <div class="gp-flash gp-flash-erro" id="flash-erro" hidden></div>
+
+    <div class="gp-tabs">
+      <button type="button" class="aba-btn ativo" data-aba="usuarios">👥 Usuários</button>
+      <button type="button" class="aba-btn" data-aba="equipes">🗂️ Equipes e quadros</button>
+      <button type="button" class="aba-btn" data-aba="permissoes">🔒 Permissões</button>
+      <button type="button" class="aba-btn" data-aba="configuracoes">⚙️ Configurações</button>
+    </div>
+
+    <!-- ══ ABA USUÁRIOS ══════════════════════════════════════════════════ -->
+    <section id="aba-usuarios">
+      <p class="gp-caption" id="usuarios-escopo-caption">Quem pode entrar no GP Flow com usuário/senha próprios do sistema.</p>
+
+      <form id="form-novo-usuario" class="us-form">
+        <div class="us-field">
+          <label for="novo-usuario">Usuário</label>
+          <input type="text" id="novo-usuario" required autocomplete="off">
+        </div>
+        <div class="us-field">
+          <label for="nova-senha">Senha (mín. 6 caracteres)</label>
+          <input type="password" id="nova-senha" required minlength="6" autocomplete="new-password">
+        </div>
+        <div class="us-field">
+          <label for="novo-usuario-apelido">Apelido</label>
+          <input type="text" id="novo-usuario-apelido" placeholder="Ex.: Vivi" autocomplete="off">
+        </div>
+        <div class="us-field">
+          <label for="novo-usuario-equipe">Equipe</label>
+          <select id="novo-usuario-equipe"></select>
+        </div>
+        <div class="us-field">
+          <label for="novo-usuario-perfil">Perfil</label>
+          <select id="novo-usuario-perfil">
+            <option value="usuario">Usuário</option>
+            <option value="admin_equipe">Administrador de equipe</option>
+            <option value="admin">Administrador (global)</option>
+          </select>
+        </div>
+        <button type="submit" class="primary">➕ Criar usuário</button>
+      </form>
+
+      <table class="us-table">
+        <thead>
+          <tr><th>Usuário</th><th>Apelido</th><th>Equipe</th><th>Perfil</th><th>Criado em</th><th></th></tr>
+        </thead>
+        <tbody id="tabela-usuarios"></tbody>
+      </table>
+      <p class="gp-caption">O apelido é o que aparece nos filtros e seleções de "Responsável" das telas de Sprint/Backlog/Kanban. Editar usuário permite trocar apelido/equipe/perfil e, opcionalmente, definir uma nova senha.</p>
+    </section>
+
+    <!-- ══ ABA EQUIPES E QUADROS ════════════════════════════════════════ -->
+    <section id="aba-equipes" hidden>
+      <p class="gp-caption" id="equipes-escopo-caption">Cada equipe tem seus próprios usuários e quadros — dados de uma equipe não aparecem pra outra.</p>
+
+      <form id="form-nova-equipe" class="eq-form" hidden>
+        <input type="text" id="nova-equipe-nome" placeholder="Nome da nova equipe">
+        <button type="submit" class="primary" id="btn-criar-equipe" disabled>➕ Criar equipe</button>
+      </form>
+
+      <div id="lista-equipes"></div>
+    </section>
+
+    <!-- ══ ABA PERMISSÕES ═══════════════════════════════════════════════ -->
+    <section id="aba-permissoes" hidden>
+      <p class="gp-caption">O que cada perfil pode fazer no GP Flow — fixo por enquanto (documentação, não configurável).</p>
+      <table class="gp-table pm-tabela">
+        <thead><tr><th>Perfil</th><th>Pode</th></tr></thead>
+        <tbody>
+          <tr><td><b>Administrador</b></td><td>Tudo — todas as equipes, cria/exclui equipes, cria qualquer perfil, mexe em qualquer configuração.</td></tr>
+          <tr><td><b>Administrador de equipe</b></td><td>Cria/gerencia usuários e quadros da própria equipe (não pode criar Administrador global), mexe nas configurações da equipe (Active Directory, macroprocessos, sistemas...).</td></tr>
+          <tr><td><b>Usuário</b></td><td>Move e cria demandas, importa do Trace, participa da sprint. Só apaga demandas que ele mesmo criou.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ══ ABA CONFIGURAÇÕES ════════════════════════════════════════════ -->
+    <section id="aba-configuracoes" hidden>
+      <h3>Como as pessoas entram no GP Flow</h3>
+      <p class="gp-caption">Usuários locais (aba Usuários) valem sempre que o modo abaixo permitir.</p>
+
+      <form id="form-config" class="cf-form">
+        <div class="cf-modo">
+          <label>
+            <input type="radio" name="modo" value="local">
+            <span><span class="titulo">Somente usuários locais</span><br>
+              <span class="desc">Ignora o Active Directory. Só entra quem estiver cadastrado na aba Usuários (ou no secrets.toml legado).</span></span>
+          </label>
+          <label>
+            <input type="radio" name="modo" value="ldap_fallback">
+            <span><span class="titulo">AD com fallback para local (recomendado)</span><br>
+              <span class="desc">Tenta validar no Active Directory primeiro; se o usuário não existir lá ou o AD estiver fora do ar, tenta os usuários locais.</span></span>
+          </label>
+          <label>
+            <input type="radio" name="modo" value="ldap">
+            <span><span class="titulo">Somente Active Directory</span><br>
+              <span class="desc">Só entra quem tiver conta no AD — usuários locais deixam de funcionar (exceto pra reabrir esta tela se algo der errado, use com cuidado).</span></span>
+          </label>
+        </div>
+
+        <div class="cf-ldap-campos" id="cf-ldap-campos">
+          <div class="cf-field">
+            <label>Servidor do Active Directory</label>
+            <input type="text" id="ldap-server" placeholder="ldap://dc01.empresa.local">
+          </div>
+          <div class="cf-field">
+            <label>Domínio</label>
+            <input type="text" id="ldap-domain" placeholder="empresa.local">
+          </div>
+          <div>
+            <button type="button" id="btn-testar-ldap">🔌 Testar conexão</button>
+            <span class="cf-teste-resultado" id="teste-resultado"></span>
+          </div>
+        </div>
+
+        <button type="submit" class="primary">💾 Salvar</button>
+      </form>
+    </section>
+  </div>
+
+  <script src="/js/gp-table-sort.js"></script>
+  <script src="/js/administracao.js"></script>
+</body>
+</html>

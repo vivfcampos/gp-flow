@@ -6,8 +6,11 @@ Funções de apoio à Sprint:
 Os estados do Kanban (Sprint/Em andamento/Homologação/Concluído) e os tipos
 de entrada (Planejada/Paraquedas) ficam centralizados em functions/banco.py
 (ESTADOS_KANBAN, TIPOS_ENTRADA) para não duplicar a fonte da verdade.
+
+Apelidos são configuração por EQUIPE (tabela `responsaveis_apelidos` em
+functions/banco.py — migrada do antigo config/responsaveis.json global na
+Fase 5 da migração multi-equipe). Toda função aqui recebe `equipe_id`.
 """
-import json
 import re
 import sys
 from pathlib import Path
@@ -15,9 +18,7 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.append(str(Path(__file__).parent.parent))
-from config import BASE_DIR
-
-ARQUIVO_RESPONSAVEIS = BASE_DIR / "config" / "responsaveis.json"
+from functions.banco import mapa_apelidos, definir_apelido
 
 
 # ---------------------------------------------------------------------------
@@ -59,36 +60,31 @@ def minutos_para_horas(minutos) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Apelidos dos responsáveis
+# Apelidos dos responsáveis — por equipe
 # ---------------------------------------------------------------------------
-def carregar_apelidos() -> dict:
-    """Lê o mapa 'nome completo -> apelido' do config/responsaveis.json."""
-    if ARQUIVO_RESPONSAVEIS.exists():
-        with open(ARQUIVO_RESPONSAVEIS, encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+def carregar_apelidos(equipe_id: int) -> dict:
+    """Mapa 'nome completo -> apelido' da equipe."""
+    return mapa_apelidos(equipe_id)
 
 
-def salvar_apelidos(mapa: dict):
-    ARQUIVO_RESPONSAVEIS.parent.mkdir(exist_ok=True)
-    with open(ARQUIVO_RESPONSAVEIS, "w", encoding="utf-8") as f:
-        json.dump(mapa, f, ensure_ascii=False, indent=4)
+def salvar_apelido(equipe_id: int, nome_completo: str, apelido_valor: str):
+    definir_apelido(equipe_id, nome_completo, apelido_valor)
 
 
-def apelido(nome_completo: str) -> str:
+def apelido(nome_completo: str, equipe_id: int) -> str:
     """
     Retorna o apelido do responsável. Se não estiver mapeado,
     usa o primeiro nome com inicial maiúscula (ex.: 'MARIA SILVA' -> 'Maria').
     """
     if not nome_completo:
         return ""
-    mapa = carregar_apelidos()
+    mapa = carregar_apelidos(equipe_id)
     if nome_completo in mapa:
         return mapa[nome_completo]
     primeiro = str(nome_completo).strip().split()[0]
     return primeiro.capitalize()
 
 
-def lista_apelidos() -> list:
+def lista_apelidos(equipe_id: int) -> list:
     """Lista de apelidos conhecidos, para usar em selects."""
-    return sorted(set(carregar_apelidos().values()))
+    return sorted(set(carregar_apelidos(equipe_id).values()))

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Histórico — GP Flow</title>
+<link rel="stylesheet" href="/css/base.css">
+</head>
+<body>
+  <nav class="gp-topbar">
+    <span class="gp-brand">📊 GP Flow</span>
+    <a href="/backlog">📥 Backlog</a>
+    <a href="/sprint">▶️ Sprint</a>
+    <a href="/kanban">📊 Kanban</a>
+    <a class="ativo" href="/historico">🕐 Histórico</a>
+    <a href="/administracao">🛠️ Administração</a>
+    <span class="gp-spacer"></span>
+    <select id="gp-quadro-select" title="Quadro ativo"></select>
+    <a href="#" id="btn-logout">🚪 Sair</a>
+  </nav>
+
+  <div class="gp-page">
+    <h1>Histórico</h1>
+    <div class="gp-flash" id="flash" hidden></div>
+    <div id="lista-sprints"></div>
+  </div>
+
+  <script src="/js/gp-table-sort.js"></script>
+  <script src="/js/gp-quadro-selector.js"></script>
+  <script src="/js/historico.js"></script>
+</body>
+</html>

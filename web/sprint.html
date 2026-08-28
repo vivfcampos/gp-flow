@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Sprint — GP Flow</title>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/kanban.css">
+<style>
+  .sp-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
+  .sp-badge { font-size: 13px; color: var(--gp-text-muted); }
+  .sp-form { max-width: 480px; }
+  .sp-form-row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+  .sp-form-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  .sp-popover { border: 1px solid var(--gp-border); border-radius: var(--gp-radius); padding: 14px; background: var(--gp-bg-secondary); max-width: 480px; margin: 10px 0; }
+</style>
+</head>
+<body>
+  <nav class="gp-topbar">
+    <a href="/backlog">📥 Backlog</a>
+    <a class="ativo" href="/sprint">▶️ Sprint</a>
+    <a href="/kanban">📊 Kanban</a>
+    <a href="/historico">🕐 Histórico</a>
+    <a href="/administracao">🛠️ Administração</a>
+    <span class="gp-spacer"></span>
+    <select id="gp-quadro-select" title="Quadro ativo"></select>
+    <a href="#" id="btn-logout">🚪 Sair</a>
+  </nav>
+
+  <div class="gp-page">
+    <h1>Sprint</h1>
+    <div class="gp-flash" id="flash" hidden></div>
+    <div class="gp-flash gp-flash-erro" id="flash-erro" hidden></div>
+
+    <div id="sem-sprint" hidden>
+      <p>Não existe nenhuma sprint ativa. Crie uma para começar.</p>
+      <div class="sp-popover" id="sugestao-pendentes" hidden>
+        <p><b>🔁 A sprint anterior terminou com <span id="sp-qtd-pendentes"></span> demanda(s) não concluída(s).</b></p>
+        <ul id="sp-lista-pendentes" style="margin: 4px 0 10px; padding-left: 20px; font-size: 13px; color: var(--gp-text-muted);"></ul>
+        <label class="gp-checkbox-row"><input type="checkbox" id="ns-incluir-pendentes" checked> Incluir essas demandas automaticamente na nova sprint</label>
+      </div>
+      <form id="form-nova-sprint" class="sp-form">
+        <div class="sp-form-row">
+          <label>Nome da sprint</label>
+          <input type="text" id="ns-nome" placeholder="Sprint 12 — 06/07 a 17/07" required>
+        </div>
+        <div class="sp-form-row">
+          <label>🎯 Meta da sprint (objetivo)</label>
+          <input type="text" id="ns-meta" placeholder="Ex.: Estabilizar as integrações do módulo financeiro">
+        </div>
+        <div class="sp-form-row-2">
+          <div><label>Início</label><input type="date" id="ns-inicio"></div>
+          <div><label>Fim</label><input type="date" id="ns-fim"></div>
+        </div>
+        <p class="gp-caption" id="ns-velocidade"></p>
+        <button type="submit" class="primary">🚀 Criar sprint</button>
+      </form>
+    </div>
+
+    <div id="com-sprint" hidden>
+      <div class="sp-header">
+        <div>
+          <h2 id="sp-nome"></h2>
+          <div class="sp-badge" id="sp-badge"></div>
+        </div>
+        <button type="button" class="primary" id="btn-iniciar" hidden>▶️ Iniciar sprint</button>
+      </div>
+
+      <div class="gp-metrics" id="sp-metrics-header"></div>
+
+      <div class="gp-flash gp-flash-erro" id="sp-capacidade" hidden></div>
+
+      <details class="gp-expander" id="exp-meta">
+        <summary>🎯 Meta da sprint</summary>
+        <textarea id="sp-meta-texto" rows="2" style="width:100%;" placeholder="Ex.: Estabilizar as integrações do módulo financeiro e zerar incidentes críticos."></textarea>
+        <div style="margin-top:8px;"><button type="button" class="primary" id="btn-salvar-meta">💾 Salvar meta</button></div>
+      </details>
+
+      <details class="gp-expander">
+        <summary>🗓️ Adicionar atividade interna (cerimônia, feriado, reunião...)</summary>
+        <div class="sp-form-row-2">
+          <div><label>Atividade</label><input type="text" id="ativ-titulo" placeholder="Cerimônia Ágil — Sprint"></div>
+          <div><label>Responsável</label><select id="ativ-resp"></select></div>
+        </div>
+        <div class="sp-form-row-2">
+          <div><label>Tipo</label><select id="ativ-tipo"></select></div>
+          <div style="align-self:end;"><button type="button" class="primary" id="ativ-criar" disabled>➕ Adicionar</button></div>
+        </div>
+      </details>
+
+      <p class="gp-caption">➕ Para adicionar demandas do Backlog, use a seção <b>Enviar para a sprint</b> na página Backlog.</p>
+      <hr>
+
+      <h3>📋 Itens da sprint</h3>
+      <div id="bloco-demandas" hidden>
+        <p><b>Demandas</b></p>
+        <table class="gp-table" id="tabela-demandas">
+          <thead><tr><th></th><th>Id</th><th>Título</th><th>Tipo</th><th>Tipo entrada</th><th>Responsável</th><th>Status</th><th>Impedimento</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="kb-modal-actions">
+          <button type="button" class="primary" id="btn-salvar-demandas">💾 Salvar alterações</button>
+          <button type="button" id="btn-remover-demandas" disabled>🗑️ Remover marcadas da sprint (0)</button>
+        </div>
+      </div>
+
+      <div id="bloco-atividades" hidden>
+        <p><b>🗓️ Atividades internas</b></p>
+        <p class="gp-caption">Cerimônias, feriados, reuniões — sem Id do Trace. Marque e clique em Salvar para excluir.</p>
+        <table class="gp-table" id="tabela-atividades">
+          <thead><tr><th></th><th>Id</th><th>Atividade</th><th>Tipo entrada</th><th>Responsável</th><th>Status</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <button type="button" class="primary" id="btn-salvar-atividades">💾 Salvar atividades</button>
+      </div>
+
+      <p class="gp-caption" id="sem-itens" hidden>Nenhum item na sprint ainda. Envie demandas pela página Backlog ou adicione uma atividade interna acima.</p>
+
+      <hr>
+      <h3>📊 Métricas da sprint</h3>
+      <div class="gp-metrics" id="sp-metricas"></div>
+
+      <hr>
+      <div class="kb-modal-actions">
+        <a id="link-exportar" href="/api/sprint/exportar.xlsx"><button type="button">⬇️ Exportar sprint (Excel)</button></a>
+        <button type="button" id="btn-abrir-encerrar">🏁 Encerrar sprint</button>
+      </div>
+
+      <div class="sp-popover" id="popover-encerrar" hidden>
+        <p><b>Retrospectiva</b> — respostas rápidas antes de encerrar:</p>
+        <div class="sp-form-row"><label>O que funcionou bem?</label><textarea id="retro-bem" rows="2"></textarea></div>
+        <div class="sp-form-row"><label>O que dificultou?</label><textarea id="retro-dificultou" rows="2"></textarea></div>
+        <div class="sp-form-row"><label>Quais ações serão levadas para a próxima sprint?</label><textarea id="retro-acoes" rows="2"></textarea></div>
+        <button type="button" class="primary" id="btn-confirmar-encerramento">Confirmar encerramento</button>
+      </div>
+
+      <hr>
+      <details class="gp-expander">
+        <summary>⚠️ Excluir esta sprint</summary>
+        <p class="gp-caption">Isso apaga o bloco da sprint (nome, período, retrospectiva). As demandas não são excluídas — voltam para o Backlog com a curadoria intacta. Atividades internas desta sprint são removidas.</p>
+        <label class="gp-checkbox-row"><input type="checkbox" id="conf-excluir-sprint"> Sim, quero excluir esta sprint e devolver as demandas ao Backlog</label>
+        <button type="button" id="btn-excluir-sprint" disabled>🗑️ Excluir sprint definitivamente</button>
+      </details>
+    </div>
+  </div>
+
+  <script src="/js/gp-table-sort.js"></script>
+  <script src="/js/gp-quadro-selector.js"></script>
+  <script src="/js/sprint.js"></script>
+</body>
+</html>

@@ -59,7 +59,7 @@ def _achar_linha_cabecalho(caminho_ou_arquivo) -> int:
 def ler_excel_trace(caminho_ou_arquivo) -> pd.DataFrame:
     """
     Lê o export do Trace e devolve um DataFrame com as colunas padronizadas,
-    prontas para o banco. Aceita caminho ou objeto de upload do Streamlit.
+    prontas para o banco. Aceita caminho ou objeto de arquivo (file-like).
     """
     linha_cab = _achar_linha_cabecalho(caminho_ou_arquivo)
     df_bruto = pd.read_excel(caminho_ou_arquivo, header=linha_cab, dtype=str)

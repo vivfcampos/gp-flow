@@ -15,6 +15,7 @@ Arquitetura (conforme especificação v0.5):
   voltar" quando a sprint encerra.
 - Existe no máximo UMA sprint com status "Em andamento" por vez.
 """
+import json
 import sys
 from pathlib import Path
 
@@ -27,6 +28,7 @@ import pandas as pd
 
 ESTADOS_KANBAN = ["Sprint", "Em andamento", "Pendente Solic./Forn.", "Homologação", "Concluído"]
 TIPOS_ENTRADA = ["Planejada", "Paraquedas", "Interna"]
+PERFIS_VALIDOS = ("usuario", "admin_equipe", "admin")
 
 
 # get_connection é fornecido por functions.db (SQLite local ou Postgres/Neon)
@@ -152,6 +154,65 @@ def criar_tabelas():
         )
     """)
 
+    # Multi-equipe (equipes/quadros) — Fase 1 da migração multi-tenant
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS equipes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome TEXT NOT NULL,
+            criado_em TEXT,
+            score_config_json TEXT
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS quadros (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            equipe_id INTEGER NOT NULL,
+            nome TEXT NOT NULL,
+            criado_em TEXT
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS perfis_externos (
+            usuario TEXT PRIMARY KEY,
+            equipe_id INTEGER,
+            perfil TEXT,
+            criado_em TEXT
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS macroprocessos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            equipe_id INTEGER NOT NULL,
+            nome TEXT NOT NULL
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS sistemas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            equipe_id INTEGER NOT NULL,
+            nome TEXT NOT NULL
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS responsaveis_apelidos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            equipe_id INTEGER NOT NULL,
+            nome_completo TEXT NOT NULL,
+            apelido TEXT NOT NULL
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS usuarios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario TEXT NOT NULL,
+            senha_hash TEXT NOT NULL,
+            criado_em TEXT,
+            equipe_id INTEGER,
+            perfil TEXT,
+            apelido TEXT
+        )
+    """)
+
     conn.commit()
     conn.close()
     _migrar_colunas()
@@ -206,6 +267,8 @@ def _migrar_colunas():
         ("aging_trace", "INTEGER"),
         ("horas_trabalhadas", "REAL DEFAULT 0"),
         ("descricao_interna", "TEXT"),
+        ("quadro_id", "INTEGER"),
+        ("criado_por", "INTEGER"),
     ]
     for coluna, tipo in colunas_novas:
         adicionar_coluna(conn, "demandas", coluna, tipo)
@@ -214,6 +277,8 @@ def _migrar_colunas():
     adicionar_coluna(conn, "sprints", "status", "TEXT DEFAULT 'Em andamento'")
     for coluna in ("encerrada_em", "retro_bem", "retro_dificultou", "retro_acoes", "meta"):
         adicionar_coluna(conn, "sprints", coluna, "TEXT")
+    adicionar_coluna(conn, "sprints", "quadro_id", "INTEGER")
+    adicionar_coluna(conn, "sprints", "status_antes_encerrar", "TEXT")
 
     conn.commit()
     conn.close()
@@ -243,15 +308,15 @@ CAMPOS_TRACE = [
 ]
 
 
-def upsert_demandas(df: pd.DataFrame):
+def upsert_demandas(df: pd.DataFrame, quadro_id: int):
     """
-    Sincroniza demandas vindas do Trace.
+    Sincroniza demandas vindas do Trace, no quadro informado.
     - Demanda existente: atualiza SOMENTE os campos do Trace. Nunca toca em
       macroprocesso/sistema/score/observações/sprint/status/tipo de
-      entrada/impedimento/responsável da sprint (curadoria e gestão da
-      sprint são exclusivas do GP Flow).
-    - Demanda nova: cria e entra no Backlog (sprint_id NULL). Nunca é
-      adicionada à sprint automaticamente.
+      entrada/impedimento/responsável da sprint/quadro_id (curadoria e
+      gestão da sprint são exclusivas do GP Flow).
+    - Demanda nova: cria e entra no Backlog (sprint_id NULL) do quadro
+      informado. Nunca é adicionada à sprint automaticamente.
     - "Ignorada": demanda já existia e nenhum campo do Trace mudou.
     Retorna (novas, atualizadas, ignoradas).
     """
@@ -289,9 +354,9 @@ def upsert_demandas(df: pd.DataFrame):
                     id, titulo, solicitante, tipo, data_criacao, estado,
                     destino, prioridade, prioridade_atendimento, aging_trace,
                     responsavel_atendimento, urgencia_importancia,
-                    data_importacao, data_atualizacao
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (demanda_id, *valores_trace.values(), agora, agora))
+                    data_importacao, data_atualizacao, quadro_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (demanda_id, *valores_trace.values(), agora, agora, quadro_id))
             novas += 1
 
     conn.commit()
@@ -326,17 +391,18 @@ def listar_demandas() -> pd.DataFrame:
     return df
 
 
-def listar_backlog() -> pd.DataFrame:
+def listar_backlog(quadro_id: int) -> pd.DataFrame:
     """
-    Demandas que não estão em nenhuma sprint (sprint_id nulo) e que não
-    foram concluídas avulsas (concluídas direto da Curadoria/Backlog, sem
-    passar por sprint — ex.: resolvidas no próprio Trace).
+    Demandas do quadro informado que não estão em nenhuma sprint (sprint_id
+    nulo) e que não foram concluídas avulsas (concluídas direto da
+    Curadoria/Backlog, sem passar por sprint — ex.: resolvidas no próprio
+    Trace).
     """
     conn = get_connection()
     df = ler_df(
-        "SELECT * FROM demandas WHERE sprint_id IS NULL "
+        "SELECT * FROM demandas WHERE sprint_id IS NULL AND quadro_id = ? "
         "AND (status_kanban IS NULL OR status_kanban != 'Concluído')",
-        conn,
+        conn, params=(quadro_id,),
     )
     conn.close()
     return df
@@ -361,10 +427,11 @@ def contar_total() -> int:
     return int(n)
 
 
-def limpar_backlog() -> int:
+def limpar_backlog(quadro_id: int) -> int:
     """
-    Apaga APENAS as demandas que estão no Backlog — mesmo critério de
-    listar_backlog(): sprint_id nulo e não concluídas avulsas.
+    Apaga APENAS as demandas do quadro informado que estão no Backlog —
+    mesmo critério de listar_backlog(): sprint_id nulo e não concluídas
+    avulsas.
 
     NÃO toca em demandas que estão em sprint, congeladas em sprints
     encerradas ou concluídas avulsas. Remove também os históricos e itens
@@ -379,8 +446,9 @@ def limpar_backlog() -> int:
     ids = [
         r[0]
         for r in cur.execute(
-            "SELECT id FROM demandas WHERE sprint_id IS NULL "
-            "AND (status_kanban IS NULL OR status_kanban != 'Concluído')"
+            "SELECT id FROM demandas WHERE sprint_id IS NULL AND quadro_id = ? "
+            "AND (status_kanban IS NULL OR status_kanban != 'Concluído')",
+            (quadro_id,),
         ).fetchall()
     ]
 
@@ -522,11 +590,12 @@ def _abrir_historico(cur, demanda_id: int, sprint_id, status_kanban: str, agora:
 # SPRINT — estados: 'Planejamento' -> 'Em andamento' -> 'Encerrada'
 # (só uma sprint "ativa" por vez, ou seja, não-encerrada)
 # ===========================================================================
-def sprint_ativa():
-    """Retorna a sprint atual (em Planejamento OU Em andamento). Só há uma por vez."""
+def sprint_ativa(quadro_id: int):
+    """Retorna a sprint atual do quadro (em Planejamento OU Em andamento). Só há uma por vez."""
     conn = get_connection()
     row = conn.execute(
-        "SELECT * FROM sprints WHERE status != 'Encerrada' ORDER BY id DESC LIMIT 1"
+        "SELECT * FROM sprints WHERE status != 'Encerrada' AND quadro_id = ? ORDER BY id DESC LIMIT 1",
+        (quadro_id,),
     ).fetchone()
     conn.close()
     return dict(row) if row else None
@@ -546,26 +615,27 @@ def listar_sprints() -> pd.DataFrame:
     return df
 
 
-def criar_sprint(nome: str, data_inicio: str = None, data_fim: str = None, meta: str = None) -> int:
+def criar_sprint(quadro_id: int, nome: str, data_inicio: str = None, data_fim: str = None, meta: str = None) -> int:
     """
-    Cria uma sprint nova em estado 'Planejamento' (ainda não iniciada).
-    Bloqueia se já existir uma sprint ativa (em Planejamento ou Em andamento).
+    Cria uma sprint nova no quadro informado, em estado 'Planejamento'
+    (ainda não iniciada). Bloqueia se já existir uma sprint ativa nesse
+    quadro (em Planejamento ou Em andamento).
     """
-    if sprint_ativa():
+    if sprint_ativa(quadro_id):
         raise ValueError("Já existe uma sprint ativa. Encerre-a antes de criar uma nova.")
     conn = get_connection()
     if usando_postgres():
         cur = conn.execute(
-            "INSERT INTO sprints (nome, data_inicio, data_fim, status, criada_em, meta) "
-            "VALUES (?, ?, ?, 'Planejamento', ?, ?) RETURNING id",
-            (nome, data_inicio, data_fim, agora_br(), (meta or None)),
+            "INSERT INTO sprints (nome, data_inicio, data_fim, status, criada_em, meta, quadro_id) "
+            "VALUES (?, ?, ?, 'Planejamento', ?, ?, ?) RETURNING id",
+            (nome, data_inicio, data_fim, agora_br(), (meta or None), quadro_id),
         )
         sprint_id = cur.fetchone()["id"]
     else:
         cur = conn.execute(
-            "INSERT INTO sprints (nome, data_inicio, data_fim, status, criada_em, meta) "
-            "VALUES (?, ?, ?, 'Planejamento', ?, ?)",
-            (nome, data_inicio, data_fim, agora_br(), (meta or None)),
+            "INSERT INTO sprints (nome, data_inicio, data_fim, status, criada_em, meta, quadro_id) "
+            "VALUES (?, ?, ?, 'Planejamento', ?, ?, ?)",
+            (nome, data_inicio, data_fim, agora_br(), (meta or None), quadro_id),
         )
         sprint_id = cur.lastrowid
     conn.commit()
@@ -581,16 +651,17 @@ def atualizar_meta_sprint(sprint_id: int, meta: str):
     conn.close()
 
 
-def velocidade_media(ultimas: int = 3) -> float:
+def velocidade_media(quadro_id: int, ultimas: int = 3) -> float:
     """
-    Velocidade histórica: média de demandas CONCLUÍDAS por sprint encerrada,
-    considerando as `ultimas` sprints encerradas. Retorna 0.0 se não houver
-    histórico suficiente. Serve para orientar quantas demandas puxar.
+    Velocidade histórica do quadro: média de demandas CONCLUÍDAS por sprint
+    encerrada, considerando as `ultimas` sprints encerradas. Retorna 0.0 se
+    não houver histórico suficiente. Serve para orientar quantas demandas
+    puxar.
     """
     conn = get_connection()
     encerradas = ler_df(
-        "SELECT id FROM sprints WHERE status = 'Encerrada' ORDER BY id DESC LIMIT ?",
-        conn, params=(ultimas,),
+        "SELECT id FROM sprints WHERE status = 'Encerrada' AND quadro_id = ? ORDER BY id DESC LIMIT ?",
+        conn, params=(quadro_id, ultimas),
     )
     if encerradas.empty:
         conn.close()
@@ -680,17 +751,22 @@ def encerrar_sprint(sprint_id: int, retro_bem: str, retro_dificultou: str, retro
 # Planning: adicionar/remover demandas da sprint ativa
 # ---------------------------------------------------------------------------
 def adicionar_demanda_a_sprint(demanda_id: int, sprint_id: int, tipo_entrada: str,
-                               responsavel_sprint: str = ""):
+                               responsavel_sprint: str = "", status_kanban: str = "Sprint"):
+    """Envia a demanda pra sprint, preservando a coluna do Kanban de origem
+    quando informado (ex.: pendentes carregados de uma sprint encerrada) —
+    cai em 'Sprint' se omitido ou inválido."""
+    if status_kanban not in ESTADOS_KANBAN:
+        status_kanban = "Sprint"
     agora = agora_br()
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
         UPDATE demandas SET
-            sprint_id = ?, status_kanban = 'Sprint', tipo_entrada = ?,
+            sprint_id = ?, status_kanban = ?, tipo_entrada = ?,
             responsavel_sprint = ?, data_entrada_sprint = ?
         WHERE id = ?
-    """, (sprint_id, tipo_entrada, responsavel_sprint, agora, demanda_id))
-    _abrir_historico(cur, demanda_id, sprint_id, "Sprint", agora)
+    """, (sprint_id, status_kanban, tipo_entrada, responsavel_sprint, agora, demanda_id))
+    _abrir_historico(cur, demanda_id, sprint_id, status_kanban, agora)
     conn.commit()
     conn.close()
 
@@ -878,10 +954,11 @@ def itens_fechamento_sprint(sprint_id: int) -> pd.DataFrame:
     return df
 
 
-def listar_sprints_encerradas() -> pd.DataFrame:
+def listar_sprints_encerradas(quadro_id: int) -> pd.DataFrame:
     conn = get_connection()
     df = ler_df(
-        "SELECT * FROM sprints WHERE status = 'Encerrada' ORDER BY id DESC", conn
+        "SELECT * FROM sprints WHERE status = 'Encerrada' AND quadro_id = ? ORDER BY id DESC",
+        conn, params=(quadro_id,),
     )
     conn.close()
     return df
@@ -914,3 +991,374 @@ def excluir_sprint(sprint_id: int):
 
     conn.commit()
     conn.close()
+
+
+# ===========================================================================
+# EQUIPES — cada usuário pertence a uma equipe; cada equipe tem 1+ quadros
+# ===========================================================================
+def listar_equipes() -> pd.DataFrame:
+    conn = get_connection()
+    df = ler_df("SELECT * FROM equipes ORDER BY id", conn)
+    conn.close()
+    return df
+
+
+def obter_equipe(equipe_id: int):
+    if equipe_id is None:
+        return None
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM equipes WHERE id = ?", (equipe_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def criar_equipe(nome: str) -> int:
+    nome = (nome or "").strip()
+    if not nome:
+        raise ValueError("Informe um nome para a equipe.")
+    conn = get_connection()
+    if usando_postgres():
+        cur = conn.execute(
+            "INSERT INTO equipes (nome, criado_em) VALUES (?, ?) RETURNING id",
+            (nome, agora_br()),
+        )
+        equipe_id = cur.fetchone()["id"]
+    else:
+        cur = conn.execute("INSERT INTO equipes (nome, criado_em) VALUES (?, ?)", (nome, agora_br()))
+        equipe_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return equipe_id
+
+
+def excluir_equipe(equipe_id: int):
+    """Só permite excluir uma equipe sem quadros e sem usuários — evita
+    deixar dados órfãos (demandas/sprints presas a um quadro cuja equipe
+    sumiu)."""
+    conn = get_connection()
+    cur = conn.cursor()
+    tem_quadro = cur.execute("SELECT 1 FROM quadros WHERE equipe_id = ? LIMIT 1", (equipe_id,)).fetchone()
+    tem_usuario = cur.execute("SELECT 1 FROM usuarios WHERE equipe_id = ? LIMIT 1", (equipe_id,)).fetchone()
+    if tem_quadro or tem_usuario:
+        conn.close()
+        raise ValueError("Só é possível excluir uma equipe sem quadros e sem usuários.")
+    cur.execute("DELETE FROM macroprocessos WHERE equipe_id = ?", (equipe_id,))
+    cur.execute("DELETE FROM sistemas WHERE equipe_id = ?", (equipe_id,))
+    cur.execute("DELETE FROM responsaveis_apelidos WHERE equipe_id = ?", (equipe_id,))
+    cur.execute("DELETE FROM equipes WHERE id = ?", (equipe_id,))
+    conn.commit()
+    conn.close()
+
+
+# ===========================================================================
+# QUADROS — Backlog+Sprint+Kanban+Histórico independentes, dentro de uma equipe
+# ===========================================================================
+def listar_quadros(equipe_id: int = None) -> pd.DataFrame:
+    """Sem `equipe_id`, lista os quadros de todas as equipes (usado pelo
+    seletor do Administrador global)."""
+    conn = get_connection()
+    if equipe_id is None:
+        df = ler_df("SELECT * FROM quadros ORDER BY id", conn)
+    else:
+        df = ler_df("SELECT * FROM quadros WHERE equipe_id = ? ORDER BY id", conn, params=(equipe_id,))
+    conn.close()
+    return df
+
+
+def obter_quadro(quadro_id: int):
+    if quadro_id is None:
+        return None
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM quadros WHERE id = ?", (quadro_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def criar_quadro(equipe_id: int, nome: str) -> int:
+    nome = (nome or "").strip()
+    if not nome:
+        raise ValueError("Informe um nome para o quadro.")
+    conn = get_connection()
+    if usando_postgres():
+        cur = conn.execute(
+            "INSERT INTO quadros (equipe_id, nome, criado_em) VALUES (?, ?, ?) RETURNING id",
+            (equipe_id, nome, agora_br()),
+        )
+        quadro_id = cur.fetchone()["id"]
+    else:
+        cur = conn.execute(
+            "INSERT INTO quadros (equipe_id, nome, criado_em) VALUES (?, ?, ?)",
+            (equipe_id, nome, agora_br()),
+        )
+        quadro_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return quadro_id
+
+
+def renomear_quadro(quadro_id: int, nome: str):
+    nome = (nome or "").strip()
+    if not nome:
+        raise ValueError("Informe um nome para o quadro.")
+    conn = get_connection()
+    conn.execute("UPDATE quadros SET nome = ? WHERE id = ?", (nome, quadro_id))
+    conn.commit()
+    conn.close()
+
+
+def excluir_quadro(quadro_id: int):
+    """Bloqueia se o quadro ainda tiver demandas ou sprints — exclusão de
+    quadro não é pensada pra apagar dados em massa, só pra remover um
+    quadro criado por engano/vazio."""
+    conn = get_connection()
+    cur = conn.cursor()
+    tem_demanda = cur.execute("SELECT 1 FROM demandas WHERE quadro_id = ? LIMIT 1", (quadro_id,)).fetchone()
+    tem_sprint = cur.execute("SELECT 1 FROM sprints WHERE quadro_id = ? LIMIT 1", (quadro_id,)).fetchone()
+    if tem_demanda or tem_sprint:
+        conn.close()
+        raise ValueError("Só é possível excluir um quadro sem demandas e sem sprints.")
+    cur.execute("DELETE FROM quadros WHERE id = ?", (quadro_id,))
+    conn.commit()
+    conn.close()
+
+
+# ===========================================================================
+# USUÁRIOS (login do servidor web) — escopados por equipe/perfil
+# ===========================================================================
+def listar_usuarios(equipe_id: int = None) -> pd.DataFrame:
+    conn = get_connection()
+    if equipe_id is None:
+        df = ler_df("SELECT * FROM usuarios ORDER BY usuario", conn)
+    else:
+        df = ler_df("SELECT * FROM usuarios WHERE equipe_id = ? ORDER BY usuario", conn, params=(equipe_id,))
+    conn.close()
+    return df
+
+
+def obter_usuario_por_nome(usuario: str):
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM usuarios WHERE usuario = ?", ((usuario or "").strip().lower(),)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def criar_usuario(usuario: str, senha_hash: str, *, equipe_id: int = None,
+                  perfil: str = "usuario", apelido: str = None) -> int:
+    usuario = (usuario or "").strip().lower()
+    if not usuario:
+        raise ValueError("Informe um nome de usuário.")
+    if obter_usuario_por_nome(usuario):
+        raise ValueError(f"Já existe um usuário com o nome '{usuario}'.")
+    conn = get_connection()
+    if usando_postgres():
+        cur = conn.execute(
+            "INSERT INTO usuarios (usuario, senha_hash, criado_em, equipe_id, perfil, apelido) "
+            "VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
+            (usuario, senha_hash, agora_br(), equipe_id, perfil, apelido),
+        )
+        usuario_id = cur.fetchone()["id"]
+    else:
+        cur = conn.execute(
+            "INSERT INTO usuarios (usuario, senha_hash, criado_em, equipe_id, perfil, apelido) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (usuario, senha_hash, agora_br(), equipe_id, perfil, apelido),
+        )
+        usuario_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return usuario_id
+
+
+def atualizar_usuario(usuario_id: int, *, equipe_id: int = None, perfil: str = None,
+                      senha_hash: str = None, apelido: str = None):
+    """Partial-update: só grava os campos que vieram (None = não mexe)."""
+    campos, valores = [], []
+    if equipe_id is not None:
+        campos.append("equipe_id = ?"); valores.append(equipe_id)
+    if perfil is not None:
+        campos.append("perfil = ?"); valores.append(perfil)
+    if senha_hash is not None:
+        campos.append("senha_hash = ?"); valores.append(senha_hash)
+    if apelido is not None:
+        campos.append("apelido = ?"); valores.append(apelido)
+    if not campos:
+        return
+    valores.append(usuario_id)
+    conn = get_connection()
+    conn.execute(f"UPDATE usuarios SET {', '.join(campos)} WHERE id = ?", valores)
+    conn.commit()
+    conn.close()
+
+
+def remover_usuario(usuario_id: int):
+    conn = get_connection()
+    conn.execute("DELETE FROM usuarios WHERE id = ?", (usuario_id,))
+    conn.commit()
+    conn.close()
+
+
+def usuarios_hash() -> dict:
+    """Mapa {usuario: senha_hash} pra functions/auth.py::_tabela_usuarios()."""
+    conn = get_connection()
+    linhas = conn.execute("SELECT usuario, senha_hash FROM usuarios").fetchall()
+    conn.close()
+    return {r["usuario"]: r["senha_hash"] for r in linhas}
+
+
+def _primeira_equipe_id():
+    conn = get_connection()
+    row = conn.execute("SELECT id FROM equipes ORDER BY id LIMIT 1").fetchone()
+    conn.close()
+    return row["id"] if row else None
+
+
+def resolver_perfil_usuario(usuario: str) -> dict:
+    """
+    Resolve perfil/equipe de qualquer usuário autenticado (local, AD ou
+    secrets.toml legado), nessa ordem:
+    1. Tabela `usuarios` (cadastro feito pela tela Administração).
+    2. Tabela `perfis_externos` (já provisionado antes).
+    3. Provisiona uma linha nova em `perfis_externos` — perfil "usuario" na
+       primeira equipe existente. NUNCA escreve na tabela `usuarios`: essa
+       tabela também é usada pra achar o hash de senha local, e uma linha
+       "de metadado" ali dentro pode sombrear/quebrar login de um usuário
+       real com o mesmo nome (bug já visto e corrigido antes).
+    """
+    usuario = (usuario or "").strip().lower()
+    row = obter_usuario_por_nome(usuario)
+    if row:
+        return {"perfil": row.get("perfil") or "usuario", "equipe_id": row.get("equipe_id")}
+
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM perfis_externos WHERE usuario = ?", (usuario,)).fetchone()
+    if row:
+        conn.close()
+        return {"perfil": row["perfil"] or "usuario", "equipe_id": row["equipe_id"]}
+
+    equipe_id = _primeira_equipe_id()
+    conn.execute(
+        "INSERT INTO perfis_externos (usuario, equipe_id, perfil, criado_em) VALUES (?, ?, 'usuario', ?)",
+        (usuario, equipe_id, agora_br()),
+    )
+    conn.commit()
+    conn.close()
+    return {"perfil": "usuario", "equipe_id": equipe_id}
+
+
+# ===========================================================================
+# CURADORIA — macroprocessos/sistemas/pesos de score, por equipe
+# ===========================================================================
+def listar_macroprocessos(equipe_id: int) -> list:
+    conn = get_connection()
+    linhas = conn.execute(
+        "SELECT nome FROM macroprocessos WHERE equipe_id = ? ORDER BY nome", (equipe_id,)
+    ).fetchall()
+    conn.close()
+    return [r["nome"] for r in linhas]
+
+
+def criar_macroprocesso(equipe_id: int, nome: str):
+    nome = (nome or "").strip()
+    if not nome:
+        return
+    conn = get_connection()
+    ja_existe = conn.execute(
+        "SELECT 1 FROM macroprocessos WHERE equipe_id = ? AND nome = ?", (equipe_id, nome)
+    ).fetchone()
+    if not ja_existe:
+        conn.execute("INSERT INTO macroprocessos (equipe_id, nome) VALUES (?, ?)", (equipe_id, nome))
+        conn.commit()
+    conn.close()
+
+
+def listar_sistemas(equipe_id: int) -> list:
+    conn = get_connection()
+    linhas = conn.execute(
+        "SELECT nome FROM sistemas WHERE equipe_id = ? ORDER BY nome", (equipe_id,)
+    ).fetchall()
+    conn.close()
+    return [r["nome"] for r in linhas]
+
+
+def criar_sistema(equipe_id: int, nome: str):
+    nome = (nome or "").strip()
+    if not nome:
+        return
+    conn = get_connection()
+    ja_existe = conn.execute(
+        "SELECT 1 FROM sistemas WHERE equipe_id = ? AND nome = ?", (equipe_id, nome)
+    ).fetchone()
+    if not ja_existe:
+        conn.execute("INSERT INTO sistemas (equipe_id, nome) VALUES (?, ?)", (equipe_id, nome))
+        conn.commit()
+    conn.close()
+
+
+def obter_config_score(equipe_id: int):
+    """`None` se a equipe ainda não tem configuração própria — quem chama
+    (functions/curadoria.py) cai pro `_CONFIG_PADRAO` nesse caso."""
+    equipe = obter_equipe(equipe_id)
+    bruto = equipe.get("score_config_json") if equipe else None
+    if not bruto:
+        return None
+    try:
+        return json.loads(bruto)
+    except (TypeError, ValueError):
+        return None
+
+
+def salvar_config_score(equipe_id: int, config: dict):
+    conn = get_connection()
+    conn.execute(
+        "UPDATE equipes SET score_config_json = ? WHERE id = ?",
+        (json.dumps(config, ensure_ascii=False), equipe_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+# ===========================================================================
+# APELIDOS — nome completo (Trace) -> apelido, por equipe
+# ===========================================================================
+def mapa_apelidos(equipe_id: int) -> dict:
+    conn = get_connection()
+    linhas = conn.execute(
+        "SELECT nome_completo, apelido FROM responsaveis_apelidos WHERE equipe_id = ?", (equipe_id,)
+    ).fetchall()
+    conn.close()
+    return {r["nome_completo"]: r["apelido"] for r in linhas}
+
+
+def definir_apelido(equipe_id: int, nome_completo: str, apelido_valor: str):
+    nome_completo = (nome_completo or "").strip()
+    apelido_valor = (apelido_valor or "").strip()
+    if not nome_completo or not apelido_valor:
+        return
+    conn = get_connection()
+    ja_existe = conn.execute(
+        "SELECT id FROM responsaveis_apelidos WHERE equipe_id = ? AND nome_completo = ?",
+        (equipe_id, nome_completo),
+    ).fetchone()
+    if ja_existe:
+        conn.execute(
+            "UPDATE responsaveis_apelidos SET apelido = ? WHERE id = ?", (apelido_valor, ja_existe["id"])
+        )
+    else:
+        conn.execute(
+            "INSERT INTO responsaveis_apelidos (equipe_id, nome_completo, apelido) VALUES (?, ?, ?)",
+            (equipe_id, nome_completo, apelido_valor),
+        )
+    conn.commit()
+    conn.close()
+
+
+def listar_apelidos_usuarios(equipe_id: int) -> list:
+    """Apelidos das contas de login da equipe — usado nos selects de
+    'Responsável'. Cai pro nome de usuário capitalizado quando ninguém
+    ainda preencheu um apelido, pra conta nunca ficar invisível no select."""
+    conn = get_connection()
+    linhas = conn.execute(
+        "SELECT usuario, apelido FROM usuarios WHERE equipe_id = ? ORDER BY usuario", (equipe_id,)
+    ).fetchall()
+    conn.close()
+    return [r["apelido"] or r["usuario"].capitalize() for r in linhas]
