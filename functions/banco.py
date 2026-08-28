@@ -279,6 +279,9 @@ def _migrar_colunas():
         adicionar_coluna(conn, "sprints", coluna, "TEXT")
     adicionar_coluna(conn, "sprints", "quadro_id", "INTEGER")
     adicionar_coluna(conn, "sprints", "status_antes_encerrar", "TEXT")
+    adicionar_coluna(conn, "sprint_fechamento_itens", "responsavel_sprint", "TEXT")
+    adicionar_coluna(conn, "sprint_fechamento_itens", "impedimento", "TEXT")
+    adicionar_coluna(conn, "atividades_internas", "data_hora", "TEXT")
 
     conn.commit()
     conn.close()
