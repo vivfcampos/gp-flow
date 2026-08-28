@@ -75,12 +75,19 @@ def apelido(nome_completo: str, equipe_id: int) -> str:
     """
     Retorna o apelido do responsável. Se não estiver mapeado,
     usa o primeiro nome com inicial maiúscula (ex.: 'MARIA SILVA' -> 'Maria').
+
+    A comparação ignora maiúsculas/minúsculas e espaços nas pontas — o Trace
+    e o cadastro de apelidos nem sempre usam a mesma caixa pro mesmo nome
+    (ex.: 'VIVIAN FOUCHY...' cadastrado vs 'Vivian Fouchy...' vindo do
+    Trace), e sem isso o mapeamento silenciosamente não batia.
     """
     if not nome_completo:
         return ""
     mapa = carregar_apelidos(equipe_id)
-    if nome_completo in mapa:
-        return mapa[nome_completo]
+    chave = str(nome_completo).strip().casefold()
+    for nome, valor in mapa.items():
+        if str(nome).strip().casefold() == chave:
+            return valor
     primeiro = str(nome_completo).strip().split()[0]
     return primeiro.capitalize()
 
