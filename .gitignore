@@ -9,3 +9,10 @@ backup/*
 exports/*
 !exports/.gitkeep
 .streamlit/secrets.toml
+automacao/config.json
+automacao/log.txt
+automacao/arquivos/*
+!automacao/arquivos/.gitkeep
+!automacao/arquivos/processados
+automacao/arquivos/processados/*
+!automacao/arquivos/processados/.gitkeep
