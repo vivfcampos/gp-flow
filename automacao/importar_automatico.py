@@ -28,6 +28,12 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import truststore
+truststore.inject_into_ssl()  # usa o certificado raiz do Windows (confia no
+# proxy/firewall corporativo da empresa) em vez da lista própria do
+# requests/certifi, que não conhece esse certificado e derruba a conexão
+# com "self-signed certificate in certificate chain".
+
 import requests
 
 BASE_DIR = Path(__file__).parent
