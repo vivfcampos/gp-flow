@@ -22,7 +22,7 @@ from functions.curadoria import (
     calcular_scores_dataframe, carregar_macroprocessos, adicionar_macroprocesso,
     carregar_sistemas, adicionar_sistema, legenda_urgencia_importancia,
 )
-from functions.sprint import apelido
+from functions.sprint import apelido, carregar_apelidos
 from functions.exportar import exportar_backlog_excel
 from server.routes_auth import exigir_login, exigir_perfil, perfil_atual, quadro_atual, equipe_atual
 
@@ -68,6 +68,7 @@ def obter_backlog(request: Request):
     if df.empty:
         return []
 
+    mapa_apelidos = carregar_apelidos(equipe_id)
     linhas = []
     for _, row in df.iterrows():
         linhas.append({
@@ -82,7 +83,7 @@ def obter_backlog(request: Request):
             "observacoes": limpar_texto(row.get("observacoes")),
             "solicitante": _limpo(row.get("solicitante")),
             "responsavel_atendimento": _limpo(row.get("responsavel_atendimento")),
-            "responsavel_apelido": apelido(row.get("responsavel_atendimento") or "", equipe_id),
+            "responsavel_apelido": apelido(row.get("responsavel_atendimento") or "", equipe_id, mapa_apelidos),
             "data_criacao": _limpo(row.get("data_criacao")),
             "data_importacao": _limpo(row.get("data_importacao")),
             "tipo": _limpo(row.get("tipo")),

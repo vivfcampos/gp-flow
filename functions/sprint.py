@@ -71,7 +71,7 @@ def salvar_apelido(equipe_id: int, nome_completo: str, apelido_valor: str):
     definir_apelido(equipe_id, nome_completo, apelido_valor)
 
 
-def apelido(nome_completo: str, equipe_id: int) -> str:
+def apelido(nome_completo: str, equipe_id: int, mapa: dict = None) -> str:
     """
     Retorna o apelido do responsável. Se não estiver mapeado,
     usa o primeiro nome com inicial maiúscula (ex.: 'MARIA SILVA' -> 'Maria').
@@ -80,10 +80,15 @@ def apelido(nome_completo: str, equipe_id: int) -> str:
     e o cadastro de apelidos nem sempre usam a mesma caixa pro mesmo nome
     (ex.: 'VIVIAN FOUCHY...' cadastrado vs 'Vivian Fouchy...' vindo do
     Trace), e sem isso o mapeamento silenciosamente não batia.
+
+    Aceita um `mapa` já carregado (via `carregar_apelidos(equipe_id)`) pra
+    quem chama isso em laço (uma demanda por vez) evitar uma consulta ao
+    banco por demanda — busca sozinho se não for passado.
     """
     if not nome_completo:
         return ""
-    mapa = carregar_apelidos(equipe_id)
+    if mapa is None:
+        mapa = carregar_apelidos(equipe_id)
     chave = str(nome_completo).strip().casefold()
     for nome, valor in mapa.items():
         if str(nome).strip().casefold() == chave:

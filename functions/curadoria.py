@@ -101,26 +101,26 @@ def nota_prioridade(prioridade: str) -> float:
     return max(0.0, min(10.0, numero * 2.5))
 
 
-def nota_urgencia(urgencia, equipe_id: int) -> float:
+def nota_urgencia(urgencia, config: dict) -> float:
     """Converte a Urgência/Importância (escala de Eisenhower 1-4) pra nota 0-10."""
     if urgencia is None or pd.isna(urgencia):
         return 5.0
-    config = carregar_config_score(equipe_id).get("nota_urgencia_importancia", _CONFIG_PADRAO["nota_urgencia_importancia"])
+    tabela = config.get("nota_urgencia_importancia", _CONFIG_PADRAO["nota_urgencia_importancia"])
     chave = str(int(urgencia)) if str(urgencia).strip() else None
-    return float(config.get(chave, 5.0))
+    return float(tabela.get(chave, 5.0))
 
 
-def nota_aging(aging_dias, equipe_id: int) -> float:
+def nota_aging(aging_dias, config: dict) -> float:
     """Converte o aging (dias parado) pra nota 0-10, usando as mesmas faixas do Backlog."""
     if aging_dias is None or pd.isna(aging_dias):
         return 5.0
     aging_dias = int(aging_dias)
-    config = carregar_config_score(equipe_id).get("nota_aging", _CONFIG_PADRAO["nota_aging"])
+    tabela = config.get("nota_aging", _CONFIG_PADRAO["nota_aging"])
     if aging_dias <= 15:
-        return float(config.get("ate_15_dias", 3))
+        return float(tabela.get("ate_15_dias", 3))
     if aging_dias <= 30:
-        return float(config.get("16_a_30_dias", 6))
-    return float(config.get("acima_30_dias", 10))
+        return float(tabela.get("16_a_30_dias", 6))
+    return float(tabela.get("acima_30_dias", 10))
 
 
 def classificar_tipo(tipo: str) -> str:
@@ -135,16 +135,16 @@ def classificar_tipo(tipo: str) -> str:
     return "outro"
 
 
-def nota_tipo(tipo: str, equipe_id: int) -> float:
+def nota_tipo(tipo: str, config: dict) -> float:
     categoria = classificar_tipo(tipo)
-    config = carregar_config_score(equipe_id).get("nota_tipo", _CONFIG_PADRAO["nota_tipo"])
-    return float(config.get(categoria, 5.0))
+    tabela = config.get("nota_tipo", _CONFIG_PADRAO["nota_tipo"])
+    return float(tabela.get(categoria, 5.0))
 
 
 # ---------------------------------------------------------------------------
 # Score final
 # ---------------------------------------------------------------------------
-def calcular_score_sugerido(prioridade: str, urgencia, aging_dias, tipo: str, equipe_id: int) -> float:
+def calcular_score_sugerido(prioridade: str, urgencia, aging_dias, tipo: str, config: dict) -> float:
     """
     Calcula o score sugerido (0 a 10) combinando os 4 fatores com os pesos
     configurados pra equipe. Esse é só o "palpite" do sistema — o valor que
@@ -155,8 +155,14 @@ def calcular_score_sugerido(prioridade: str, urgencia, aging_dias, tipo: str, eq
     está ausente, seu peso é redistribuído proporcionalmente entre os outros
     três fatores, para o score refletir só o que temos (em vez de puxar tudo
     para uma nota neutra e distorcer a priorização).
+
+    Recebe `config` já carregado (não `equipe_id`) — quem chama em lote
+    (`calcular_scores_dataframe`) busca a configuração uma vez só, em vez de
+    uma vez por demanda (uma consulta a mais por demanda é imperceptível no
+    SQLite local, mas custa uma viagem de rede inteira contra o Postgres do
+    Render — foi isso que deixava o Backlog lento).
     """
-    pesos = carregar_config_score(equipe_id).get("pesos", _CONFIG_PADRAO["pesos"])
+    pesos = config.get("pesos", _CONFIG_PADRAO["pesos"])
     peso_prio = pesos.get("prioridade", 0)
     peso_urg = pesos.get("urgencia_importancia", 0)
     peso_aging = pesos.get("aging", 0)
@@ -176,19 +182,20 @@ def calcular_score_sugerido(prioridade: str, urgencia, aging_dias, tipo: str, eq
 
     score = (
         nota_prioridade(prioridade) * peso_prio
-        + (nota_urgencia(urgencia, equipe_id) * peso_urg if peso_urg else 0)
-        + nota_aging(aging_dias, equipe_id) * peso_aging
-        + nota_tipo(tipo, equipe_id) * peso_tipo
+        + (nota_urgencia(urgencia, config) * peso_urg if peso_urg else 0)
+        + nota_aging(aging_dias, config) * peso_aging
+        + nota_tipo(tipo, config) * peso_tipo
     )
     return round(score, 1)
 
 
 def calcular_scores_dataframe(df: pd.DataFrame, equipe_id: int) -> pd.Series:
     """Aplica calcular_score_sugerido em cada linha de um DataFrame de demandas (já com aging_dias)."""
+    config = carregar_config_score(equipe_id)
     return df.apply(
         lambda row: calcular_score_sugerido(
             row.get("prioridade"), row.get("urgencia_importancia"),
-            row.get("aging_dias"), row.get("tipo"), equipe_id,
+            row.get("aging_dias"), row.get("tipo"), config,
         ),
         axis=1,
     )

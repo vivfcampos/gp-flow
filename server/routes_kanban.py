@@ -13,7 +13,7 @@ from functions.banco import (
     atualizar_card_kanban, adicionar_atividade_interna, remover_demanda_da_sprint,
     buscar_demanda, listar_apelidos_usuarios, ESTADOS_KANBAN, TIPOS_ENTRADA,
 )
-from functions.sprint import apelido
+from functions.sprint import apelido, carregar_apelidos
 from functions.util import limpar_texto
 from server.routes_auth import exigir_login, quadro_atual, equipe_atual
 
@@ -53,13 +53,16 @@ def obter_board(request: Request):
     criar_tabelas()
     equipe_id = equipe_atual(request)
 
+    apelidos_usuarios = listar_apelidos_usuarios(equipe_id)
+
     sprint = sprint_ativa(quadro_atual(request))
     if not sprint:
-        return {"sprint": None, "colunas": [], "apelidos": listar_apelidos_usuarios(equipe_id),
+        return {"sprint": None, "colunas": [], "apelidos": apelidos_usuarios,
                 "estados": ESTADOS_KANBAN, "tipos_entrada": TIPOS_ENTRADA}
 
     demandas = listar_demandas_sprint(sprint["id"])
     atividades = listar_atividades_sprint(sprint["id"])
+    mapa_apelidos = carregar_apelidos(equipe_id)
 
     colunas = []
     for estado in ESTADOS_KANBAN:
@@ -71,7 +74,7 @@ def obter_board(request: Request):
             titulo_curto = (titulo[:52] + "…") if len(titulo) > 53 else titulo
             items.append({
                 "id": int(d["id"]), "tipo": "D", "titulo": titulo_curto,
-                "responsavel": apelido(_limpo(d.get("responsavel_sprint")) or "", equipe_id),
+                "responsavel": apelido(_limpo(d.get("responsavel_sprint")) or "", equipe_id, mapa_apelidos),
                 "responsavel_raw": _limpo(d.get("responsavel_sprint")) or "",
                 "entrada": _limpo(d.get("tipo_entrada")) or "",
                 "impedimento": _tem_impedimento(d.get("impedimento")),
@@ -85,7 +88,7 @@ def obter_board(request: Request):
             titulo_curto = (titulo[:52] + "…") if len(titulo) > 53 else titulo
             items.append({
                 "id": int(a["id"]), "tipo": "A", "titulo": titulo_curto,
-                "responsavel": apelido(_limpo(a.get("responsavel_sprint")) or "", equipe_id),
+                "responsavel": apelido(_limpo(a.get("responsavel_sprint")) or "", equipe_id, mapa_apelidos),
                 "responsavel_raw": _limpo(a.get("responsavel_sprint")) or "",
                 "entrada": _limpo(a.get("tipo_entrada")) or "",
                 "impedimento": _tem_impedimento(a.get("impedimento")),
@@ -96,7 +99,7 @@ def obter_board(request: Request):
     return {
         "sprint": {"id": sprint["id"], "nome": sprint["nome"]},
         "colunas": colunas,
-        "apelidos": listar_apelidos_usuarios(equipe_id),
+        "apelidos": apelidos_usuarios,
         "estados": ESTADOS_KANBAN,
         "tipos_entrada": TIPOS_ENTRADA,
     }
@@ -115,19 +118,20 @@ def obter_daily(request: Request):
 
     demandas = listar_demandas_sprint(sprint["id"])
     atividades = listar_atividades_sprint(sprint["id"])
+    mapa_apelidos = carregar_apelidos(equipe_id)
 
     linhas = []
     for _, d in demandas.iterrows():
         linhas.append({
             "tipo": "D", "id": int(d["id"]), "titulo": d["titulo"],
-            "responsavel": apelido(_limpo(d.get("responsavel_sprint")) or "", equipe_id),
+            "responsavel": apelido(_limpo(d.get("responsavel_sprint")) or "", equipe_id, mapa_apelidos),
             "status": _limpo(d.get("status_kanban")) or "Sprint",
             "impedimento": limpar_texto(d.get("impedimento")),
         })
     for _, a in atividades.iterrows():
         linhas.append({
             "tipo": "A", "id": int(a["id"]), "titulo": a["titulo"],
-            "responsavel": apelido(_limpo(a.get("responsavel_sprint")) or "", equipe_id),
+            "responsavel": apelido(_limpo(a.get("responsavel_sprint")) or "", equipe_id, mapa_apelidos),
             "status": _limpo(a.get("status_kanban")) or "Sprint",
             "impedimento": limpar_texto(a.get("impedimento")),
         })
