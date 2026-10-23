@@ -58,18 +58,42 @@
     document.querySelector("#tabela-preview tbody").innerHTML = dados.preview.map((r) => `
       <tr><td>${r.id}</td><td>${escapeHTML(r.titulo)}</td><td>${escapeHTML(r.prioridade || "")}</td>
           <td>${escapeHTML(r.estado || "")}</td><td>${escapeHTML(r.responsavel || "")}</td></tr>`).join("");
+    renderEncerradas(dados.encerradas);
     $("importar-preview").hidden = false;
   });
+
+  const ACAO_ENCERRADAS = {
+    na_sprint: { txt: "vão para Concluído no Kanban", curto: "→ Concluído no Kanban" },
+    no_backlog: { txt: "saem da Classificação e vão para Concluído no Kanban (avulsa se não houver sprint ativa)", curto: "→ Concluído no Kanban" },
+    ja_concluidas: { txt: "já estavam concluídas (nada muda)", curto: "Já concluída" },
+    outro_quadro: { txt: "são de outro quadro (não são tocadas)", curto: "Outro quadro — não mexe" },
+    desconhecidas: { txt: "não existem no GP Flow (não serão criadas)", curto: "Não será criada" },
+  };
+
+  function renderEncerradas(enc) {
+    const bloco = $("importar-encerradas");
+    const grupos = Object.keys(ACAO_ENCERRADAS).filter((k) => enc && enc[k] && enc[k].length);
+    if (!grupos.length) { bloco.hidden = true; return; }
+    $("encerradas-resumo").innerHTML = grupos.map((k) =>
+      `<li><b>${enc[k].length}</b> ${ACAO_ENCERRADAS[k].txt}</li>`).join("");
+    document.querySelector("#tabela-encerradas tbody").innerHTML = grupos.flatMap((k) =>
+      enc[k].map((r) => `<tr><td>${r.id}</td><td>${escapeHTML(r.titulo || "")}</td>
+        <td>${escapeHTML(r.estado || "")}</td><td>${ACAO_ENCERRADAS[k].curto}</td></tr>`)).join("");
+    bloco.hidden = false;
+  }
 
   $("btn-confirmar-importacao").addEventListener("click", async () => {
     if (!state.token) return;
     const resp = await fetch("/api/backlog/importar/confirmar", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: state.token }),
+      body: JSON.stringify({ token: state.token, mover_encerradas: true }),
     });
     const dados = await resp.json();
     if (resp.ok && dados.ok) {
-      flash(`Importação concluída — Total: ${dados.total} · Novas: ${dados.novas} · Atualizadas: ${dados.atualizadas} · Ignoradas: ${dados.ignoradas}`);
+      let msg = `Importação concluída — Total: ${dados.total} · Novas: ${dados.novas} · Atualizadas: ${dados.atualizadas} · Ignoradas: ${dados.ignoradas}`;
+      const conc = (dados.encerradas_sprint || 0) + (dados.encerradas_backlog || 0);
+      if (conc) msg += ` · Concluídas pelo Trace: ${conc}`;
+      flash(msg);
       resetImportar();
       carregarUltimaImportacao();
       carregarBacklog();
@@ -92,6 +116,7 @@
     state.token = null;
     $("importar-arquivo").value = "";
     $("importar-preview").hidden = true;
+    $("importar-encerradas").hidden = true;
   }
 
   async function carregarUltimaImportacao() {

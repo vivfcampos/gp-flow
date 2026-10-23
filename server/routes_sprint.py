@@ -14,7 +14,8 @@ from functions.banco import (
     listar_demandas_sprint, listar_atividades_sprint, remover_demanda_da_sprint,
     atualizar_status_kanban, atualizar_tipo_entrada, atualizar_responsavel_sprint,
     atualizar_impedimento, adicionar_atividade_interna, atualizar_atividade_interna,
-    remover_atividade_interna, listar_apelidos_usuarios, ESTADOS_KANBAN, TIPOS_ENTRADA,
+    remover_atividade_interna, listar_apelidos_usuarios, listar_atividades_a_transportar,
+    ESTADOS_KANBAN, TIPOS_ENTRADA,
 )
 from functions.util import formatar_codigo, limpar_texto
 from functions.metricas import lead_time_medio_dias, taxa_conclusao, resumo_recorrencia
@@ -46,7 +47,13 @@ def obter_sprint(request: Request):
 
     sprint = sprint_ativa(quadro_id)
     if not sprint:
-        return {"sprint": None, "velocidade_media": velocidade_media(quadro_id)}
+        return {
+            "sprint": None, "velocidade_media": velocidade_media(quadro_id),
+            "atividades_transportar": [
+                {"id": int(a["id"]), "titulo": a["titulo"], "responsavel": a.get("responsavel_sprint") or ""}
+                for a in listar_atividades_a_transportar(quadro_id)
+            ],
+        }
 
     demandas = listar_demandas_sprint(sprint["id"])
     atividades = listar_atividades_sprint(sprint["id"])
@@ -279,6 +286,7 @@ class EncerrarBody(BaseModel):
     retro_bem: str = ""
     retro_dificultou: str = ""
     retro_acoes: str = ""
+    atividades_transportar: list[int] = []
 
 
 @router.post("/encerrar")
@@ -288,7 +296,8 @@ def encerrar(body: EncerrarBody, request: Request):
     sprint = sprint_ativa(quadro_atual(request))
     if not sprint:
         return JSONResponse({"erro": "Não há sprint ativa."}, status_code=400)
-    resumo = encerrar_sprint(sprint["id"], body.retro_bem, body.retro_dificultou, body.retro_acoes)
+    resumo = encerrar_sprint(sprint["id"], body.retro_bem, body.retro_dificultou, body.retro_acoes,
+                             atividades_transportar=body.atividades_transportar)
     return {"ok": True, "resumo": resumo}
 
 

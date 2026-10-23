@@ -38,6 +38,10 @@
         <ul id="sp-lista-pendentes" style="margin: 4px 0 10px; padding-left: 20px; font-size: 13px; color: var(--gp-text-muted);"></ul>
         <label class="gp-checkbox-row"><input type="checkbox" id="ns-incluir-pendentes" checked> Incluir essas demandas automaticamente na nova sprint</label>
       </div>
+      <div class="sp-popover" id="sugestao-atividades" hidden>
+        <p><b>🗓️ <span id="sp-qtd-ativ-transp"></span> atividade(s) interna(s) serão levadas para a nova sprint</b> (escolhidas no encerramento):</p>
+        <ul id="sp-lista-ativ-transp" style="margin: 4px 0 0; padding-left: 20px; font-size: 13px; color: var(--gp-text-muted);"></ul>
+      </div>
       <form id="form-nova-sprint" class="sp-form">
         <div class="sp-form-row">
           <label>Nome da sprint</label>
@@ -130,6 +134,12 @@
         <div class="sp-form-row"><label>O que funcionou bem?</label><textarea id="retro-bem" rows="2"></textarea></div>
         <div class="sp-form-row"><label>O que dificultou?</label><textarea id="retro-dificultou" rows="2"></textarea></div>
         <div class="sp-form-row"><label>Quais ações serão levadas para a próxima sprint?</label><textarea id="retro-acoes" rows="2"></textarea></div>
+        <div id="enc-bloco-atividades" hidden>
+          <p><b>🗓️ Atividades internas para levar à próxima sprint</b></p>
+          <p class="gp-caption">Marque as que devem continuar. As concluídas voltam para a coluna Sprint; as demais mantêm a coluna atual. As não marcadas ficam só no histórico desta sprint.</p>
+          <label class="gp-checkbox-row"><input type="checkbox" id="enc-ativ-todas"> <i>Marcar todas</i></label>
+          <div id="enc-lista-atividades" style="margin: 4px 0 10px;"></div>
+        </div>
         <button type="button" class="primary" id="btn-confirmar-encerramento">Confirmar encerramento</button>
       </div>
 

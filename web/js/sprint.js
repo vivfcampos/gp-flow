@@ -29,6 +29,7 @@
 
   let estadoItens = { apelidos: [], estados: [], tipos_entrada: [] };
   let pendentesAnteriores = [];
+  let atividadesAtuais = [];
   gpMakeSortable(document.getElementById("tabela-demandas"));
   gpMakeSortable(document.getElementById("tabela-atividades"));
 
@@ -51,6 +52,14 @@
         el("sp-qtd-pendentes").textContent = pendentesAnteriores.length;
         el("sp-lista-pendentes").innerHTML = pendentesAnteriores
           .map((p) => `<li>#${p.id} — ${escapeHTML(p.titulo)}</li>`).join("");
+      }
+
+      const transp = dados.atividades_transportar || [];
+      el("sugestao-atividades").hidden = transp.length === 0;
+      if (transp.length) {
+        el("sp-qtd-ativ-transp").textContent = transp.length;
+        el("sp-lista-ativ-transp").innerHTML = transp
+          .map((a) => `<li>${escapeHTML(a.titulo)}${a.responsavel ? ` · ${escapeHTML(a.responsavel)}` : ""}</li>`).join("");
       }
       return;
     }
@@ -186,6 +195,9 @@
     });
     gpSyncDataSort(tbodyDem);
 
+    atividadesAtuais = dados.atividades;
+    renderAtividadesEncerramento();
+
     const tbodyAtiv = document.querySelector("#tabela-atividades tbody");
     tbodyAtiv.innerHTML = dados.atividades.map((a) => `
       <tr data-id="${a.id}">
@@ -312,6 +324,17 @@
   }
 
   // ── Encerrar / excluir ───────────────────────────────────────────────────
+  function renderAtividadesEncerramento() {
+    el("enc-bloco-atividades").hidden = atividadesAtuais.length === 0;
+    el("enc-ativ-todas").checked = false;
+    el("enc-lista-atividades").innerHTML = atividadesAtuais.map((a) => `
+      <label class="gp-checkbox-row"><input type="checkbox" class="enc-ativ" value="${a.id}">
+        ${escapeHTML(a.titulo)} <span class="gp-caption">· ${escapeHTML(a.status)}${a.responsavel ? ` · ${escapeHTML(a.responsavel)}` : ""}</span></label>`).join("");
+  }
+  el("enc-ativ-todas").addEventListener("change", (e) => {
+    document.querySelectorAll("#enc-lista-atividades .enc-ativ").forEach((c) => { c.checked = e.target.checked; });
+  });
+
   el("btn-abrir-encerrar").addEventListener("click", () => {
     el("popover-encerrar").hidden = !el("popover-encerrar").hidden;
   });
@@ -321,13 +344,15 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         retro_bem: el("retro-bem").value, retro_dificultou: el("retro-dificultou").value, retro_acoes: el("retro-acoes").value,
+        atividades_transportar: Array.from(document.querySelectorAll("#enc-lista-atividades .enc-ativ:checked")).map((c) => Number(c.value)),
       }),
     });
     const dados = await resp.json();
     if (resp.ok && dados.ok) {
       const r = dados.resumo;
       pendentesAnteriores = r.itens_pendentes || [];
-      flash(`🏁 Sprint encerrada! Planejadas: ${r.planejadas} · Paraquedas: ${r.paraquedas} · Internas: ${r.internas} · Concluídas: ${r.concluidas} · Pendentes: ${r.pendentes} (voltaram para o Backlog).`);
+      flash(`🏁 Sprint encerrada! Planejadas: ${r.planejadas} · Paraquedas: ${r.paraquedas} · Internas: ${r.internas} · Concluídas: ${r.concluidas} · Pendentes: ${r.pendentes} (voltaram para o Backlog)` +
+        (r.internas_transportadas ? ` · Atividades internas para a próxima sprint: ${r.internas_transportadas}.` : "."));
       el("popover-encerrar").hidden = true;
       carregarSprint();
     } else {

@@ -45,6 +45,18 @@
           <thead><tr><th>Id</th><th>Título</th><th>Prioridade</th><th>Estado</th><th>Responsável</th></tr></thead>
           <tbody></tbody>
         </table>
+        <div id="importar-encerradas" class="gp-encerradas" hidden>
+          <h4>🏁 Encerradas no Trace</h4>
+          <p class="gp-caption">Demandas que vieram como Concluído/Cancelado na planilha. Ao confirmar:</p>
+          <ul id="encerradas-resumo"></ul>
+          <details class="gp-expander">
+            <summary>Ver demandas</summary>
+            <table class="gp-table" id="tabela-encerradas">
+              <thead><tr><th>Id</th><th>Título</th><th>Estado no Trace</th><th>O que acontece</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </details>
+        </div>
         <div class="kb-modal-actions">
           <button type="button" class="primary" id="btn-confirmar-importacao">✅ Confirmar importação</button>
           <button type="button" id="btn-cancelar-importacao">🧹 Limpar arquivo selecionado</button>

@@ -14,7 +14,8 @@ from functions.banco import (
     criar_tabelas, upsert_demandas, listar_backlog, registrar_importacao,
     ultima_importacao, contar_backlog, limpar_backlog, atualizar_curadoria,
     criar_sprint, sprint_ativa, sprint_em_andamento, adicionar_demanda_a_sprint,
-    listar_apelidos_usuarios,
+    listar_apelidos_usuarios, estado_trace_encerrado, analisar_encerradas,
+    concluir_demandas, concluir_no_kanban,
 )
 from functions.importar import ler_excel_trace
 from functions.util import calcular_aging, formatar_codigo, limpar_texto
@@ -191,15 +192,31 @@ async def preview_importacao(request: Request, arquivo: UploadFile = File(...)):
 
     preview = df.head(5)[["id", "titulo", "prioridade", "estado", "responsavel_atendimento"]].copy()
     preview.columns = ["id", "titulo", "prioridade", "estado", "responsavel"]
-    return {"token": token, "total": len(df), "preview": preview.to_dict(orient="records")}
+    encerradas = analisar_encerradas(df, quadro_atual(request))
+    return {
+        "token": token, "total": len(df), "preview": preview.to_dict(orient="records"),
+        "encerradas": _limpo_encerradas(encerradas),
+    }
+
+
+def _limpo_encerradas(encerradas: dict) -> dict:
+    return {k: [_limpo_dict(i) for i in v] for k, v in encerradas.items()}
 
 
 class TokenBody(BaseModel):
     token: str
 
 
+class ConfirmarBody(BaseModel):
+    token: str
+    # Padrão True: tanto a tela quanto a automação (automacao/importar_automatico.py,
+    # que não envia o campo) levam as encerradas no Trace para Concluído em vez
+    # de deixá-las na Classificação.
+    mover_encerradas: bool = True
+
+
 @router.post("/importar/confirmar")
-def confirmar_importacao(body: TokenBody, request: Request):
+def confirmar_importacao(body: ConfirmarBody, request: Request):
     if erro := exigir_login(request):
         return erro
     caminho = PENDING_DIR / f"{body.token}.pkl"
@@ -207,14 +224,32 @@ def confirmar_importacao(body: TokenBody, request: Request):
         return JSONResponse({"erro": "Essa importação expirou. Suba o arquivo novamente."}, status_code=400)
     with open(caminho, "rb") as f:
         pendente = pickle.load(f)
+    quadro_id = quadro_atual(request)
+    df = pendente["df"]
+    movidas_sprint = concluidas_backlog = nao_criadas = 0
     try:
-        novas, atualizadas, ignoradas = upsert_demandas(pendente["df"], quadro_atual(request))
+        if body.mover_encerradas:
+            # Reanalisa na hora de confirmar (o banco pode ter mudado desde o preview).
+            encerradas = analisar_encerradas(df, quadro_id)
+            # Encerradas que o GP Flow não conhece não são criadas.
+            ids_desconhecidas = {i["id"] for i in encerradas["desconhecidas"]}
+            if ids_desconhecidas:
+                df = df[~df["id"].astype(int).isin(ids_desconhecidas)]
+            nao_criadas = len(ids_desconhecidas)
+        novas, atualizadas, ignoradas = upsert_demandas(df, quadro_id)
+        if body.mover_encerradas:
+            movidas_sprint = concluir_demandas([i["id"] for i in encerradas["na_sprint"]])
+            concluidas_backlog = concluir_no_kanban([i["id"] for i in encerradas["no_backlog"]], quadro_id)
         registrar_importacao(pendente["nome_arquivo"], len(pendente["df"]), novas, atualizadas, ignoradas)
     except Exception:
         return JSONResponse({"erro": "Não foi possível concluir a importação. Verifique o arquivo e tente novamente."}, status_code=500)
     finally:
         caminho.unlink(missing_ok=True)
-    return {"ok": True, "total": len(pendente["df"]), "novas": novas, "atualizadas": atualizadas, "ignoradas": ignoradas}
+    return {
+        "ok": True, "total": len(pendente["df"]), "novas": novas, "atualizadas": atualizadas,
+        "ignoradas": ignoradas, "encerradas_sprint": movidas_sprint,
+        "encerradas_backlog": concluidas_backlog, "encerradas_nao_criadas": nao_criadas,
+    }
 
 
 @router.post("/importar/cancelar")

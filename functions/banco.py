@@ -282,6 +282,8 @@ def _migrar_colunas():
     adicionar_coluna(conn, "sprint_fechamento_itens", "responsavel_sprint", "TEXT")
     adicionar_coluna(conn, "sprint_fechamento_itens", "impedimento", "TEXT")
     adicionar_coluna(conn, "atividades_internas", "data_hora", "TEXT")
+    # 1 = marcada no encerramento para ser levada à próxima sprint do quadro
+    adicionar_coluna(conn, "atividades_internas", "transportar", "INTEGER DEFAULT 0")
 
     conn.commit()
     conn.close()
@@ -365,6 +367,140 @@ def upsert_demandas(df: pd.DataFrame, quadro_id: int):
     conn.commit()
     conn.close()
     return novas, atualizadas, ignoradas
+
+
+# ===========================================================================
+# ENCERRADAS NO TRACE (só na importação manual pela tela)
+# ===========================================================================
+PREFIXOS_ENCERRADO = ("conclu", "cancel", "encerr")
+
+
+def estado_trace_encerrado(estado) -> bool:
+    """True se o Estado do Trace indica demanda concluída ou cancelada."""
+    if estado is None:
+        return False
+    import unicodedata
+    texto = unicodedata.normalize("NFKD", str(estado)).encode("ascii", "ignore").decode("ascii")
+    texto = texto.strip().lower()
+    if texto in ("", "nan", "none", "null"):
+        return False
+    return texto.startswith(PREFIXOS_ENCERRADO)
+
+
+def analisar_encerradas(df: pd.DataFrame, quadro_id: int) -> dict:
+    """
+    Olha as linhas da planilha com Estado encerrado no Trace (Concluído /
+    Cancelado) e classifica cada uma pelo que vai acontecer no GP Flow:
+      - "na_sprint":     está numa sprint do quadro e ainda não concluída
+                         -> vai para a coluna Concluído do Kanban
+      - "no_backlog":    está no Backlog do quadro -> vira conclusão avulsa
+      - "ja_concluidas": já está Concluído no GP Flow -> nada a fazer
+      - "outro_quadro":  pertence a outro quadro -> não é tocada
+      - "desconhecidas": não existe no GP Flow -> NÃO é criada
+    Cada lista traz dicts {id, titulo, estado}.
+    """
+    resultado = {k: [] for k in ("na_sprint", "no_backlog", "ja_concluidas",
+                                 "outro_quadro", "desconhecidas")}
+    if df is None or df.empty or "estado" not in df.columns:
+        return resultado
+
+    # Demandas que já estão paradas na Classificação (Backlog) com Estado
+    # encerrado gravado no banco, mas que não vieram nesta planilha — também
+    # saem da triagem e vão para Concluído.
+    ids_planilha = {int(i) for i in df["id"]}
+    resultado["no_backlog"].extend(
+        i for i in _backlog_encerradas_no_banco(quadro_id) if i["id"] not in ids_planilha
+    )
+
+    encerradas = df[df["estado"].apply(estado_trace_encerrado)]
+    if encerradas.empty:
+        return resultado
+
+    ids = [int(i) for i in encerradas["id"]]
+    conn = get_connection()
+    marcadores = ",".join("?" * len(ids))
+    atuais = {
+        int(r["id"]): dict(r)
+        for r in conn.execute(
+            f"SELECT id, sprint_id, status_kanban, quadro_id FROM demandas WHERE id IN ({marcadores})",
+            ids,
+        ).fetchall()
+    }
+    conn.close()
+
+    for _, row in encerradas.iterrows():
+        demanda_id = int(row["id"])
+        item = {
+            "id": demanda_id,
+            "titulo": _valor_sqlite(row.get("titulo")),
+            "estado": _valor_sqlite(row.get("estado")),
+        }
+        atual = atuais.get(demanda_id)
+        if atual is None:
+            resultado["desconhecidas"].append(item)
+        elif atual.get("quadro_id") is not None and int(atual["quadro_id"]) != int(quadro_id):
+            resultado["outro_quadro"].append(item)
+        elif atual.get("status_kanban") == "Concluído":
+            resultado["ja_concluidas"].append(item)
+        elif atual.get("sprint_id") is not None:
+            resultado["na_sprint"].append(item)
+        else:
+            resultado["no_backlog"].append(item)
+    return resultado
+
+
+def _backlog_encerradas_no_banco(quadro_id: int) -> list:
+    """Demandas do Backlog do quadro cujo Estado do Trace (já gravado) é encerrado."""
+    conn = get_connection()
+    linhas = conn.execute(
+        "SELECT id, titulo, estado FROM demandas WHERE sprint_id IS NULL AND quadro_id = ? "
+        "AND (status_kanban IS NULL OR status_kanban != 'Concluído')",
+        (quadro_id,),
+    ).fetchall()
+    conn.close()
+    return [
+        {"id": int(r["id"]), "titulo": r["titulo"], "estado": r["estado"]}
+        for r in linhas if estado_trace_encerrado(r["estado"])
+    ]
+
+
+def concluir_no_kanban(ids: list, quadro_id: int) -> int:
+    """
+    Leva demandas do Backlog direto para a coluna Concluído do Kanban da
+    sprint ativa do quadro (sem passar pela Classificação). Tipo de entrada
+    segue a regra da sprint: Planejada em Planejamento, Paraquedas depois do
+    ▶️ Iniciar. Sem sprint ativa, viram conclusão avulsa (saem do Backlog).
+    """
+    ids = [int(i) for i in ids if i is not None]
+    if not ids:
+        return 0
+    sprint = sprint_ativa(quadro_id)
+    if not sprint:
+        return concluir_demandas(ids)
+    tipo = "Paraquedas" if sprint_em_andamento(sprint) else "Planejada"
+    for demanda_id in ids:
+        adicionar_demanda_a_sprint(demanda_id, sprint["id"], tipo, "", status_kanban="Concluído")
+    return len(ids)
+
+
+def concluir_demandas(ids: list) -> int:
+    """Conclui várias demandas de uma vez (mesma regra de concluir_demanda). Retorna quantas."""
+    ids = [int(i) for i in ids if i is not None]
+    if not ids:
+        return 0
+    agora = agora_br()
+    conn = get_connection()
+    cur = conn.cursor()
+    for demanda_id in ids:
+        row = cur.execute("SELECT sprint_id FROM demandas WHERE id = ?", (demanda_id,)).fetchone()
+        if not row:
+            continue
+        cur.execute("UPDATE demandas SET status_kanban = ?, data_atualizacao = ? WHERE id = ?",
+                    ("Concluído", agora, demanda_id))
+        _abrir_historico(cur, demanda_id, row["sprint_id"], "Concluído", agora)
+    conn.commit()
+    conn.close()
+    return len(ids)
 
 
 def registrar_importacao(arquivo: str, total: int, novas: int, atualizadas: int, ignoradas: int = 0):
@@ -685,7 +821,55 @@ def criar_sprint(quadro_id: int, nome: str, data_inicio: str = None, data_fim: s
             pendente["responsavel_sprint"] or "", status_kanban=pendente["status_final"],
         )
 
+    _transportar_atividades_internas(quadro_id, sprint_id)
+
     return sprint_id
+
+
+def listar_atividades_a_transportar(quadro_id: int) -> list:
+    """Atividades internas de sprints encerradas do quadro marcadas para seguir na próxima."""
+    conn = get_connection()
+    linhas = conn.execute("""
+        SELECT a.* FROM atividades_internas a
+        JOIN sprints s ON s.id = a.sprint_id
+        WHERE s.quadro_id = ? AND s.status = 'Encerrada' AND a.transportar = 1
+        ORDER BY a.responsavel_sprint, a.id
+    """, (quadro_id,)).fetchall()
+    conn.close()
+    return [dict(r) for r in linhas]
+
+
+def _transportar_atividades_internas(quadro_id: int, sprint_id: int) -> int:
+    """
+    Copia para a sprint nova as atividades internas marcadas no encerramento
+    e desmarca as originais. Mantém título, responsável e tipo de entrada;
+    a coluna do Kanban é preservada, exceto quando estava Concluído — aí
+    volta para Sprint (ex.: cerimônia recorrente que acontece de novo).
+    """
+    atividades = listar_atividades_a_transportar(quadro_id)
+    if not atividades:
+        return 0
+    agora = agora_br()
+    conn = get_connection()
+    cur = conn.cursor()
+    for a in atividades:
+        status = a.get("status_kanban") or "Sprint"
+        concluida = status == "Concluído"
+        if concluida or status not in ESTADOS_KANBAN:
+            status = "Sprint"
+        cur.execute("""
+            INSERT INTO atividades_internas
+                (sprint_id, titulo, responsavel_sprint, horas_minutos, status_kanban,
+                 tipo_entrada, impedimento, ordem, data_hora, transportar)
+            VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, 0)
+        """, (sprint_id, a["titulo"], a.get("responsavel_sprint"), status,
+              a.get("tipo_entrada") or "Interna",
+              None if concluida else a.get("impedimento"),
+              a.get("ordem") or 0, agora))
+        cur.execute("UPDATE atividades_internas SET transportar = 0 WHERE id = ?", (a["id"],))
+    conn.commit()
+    conn.close()
+    return len(atividades)
 
 
 def atualizar_meta_sprint(sprint_id: int, meta: str):
@@ -738,7 +922,8 @@ def iniciar_sprint(sprint_id: int):
     conn.close()
 
 
-def encerrar_sprint(sprint_id: int, retro_bem: str, retro_dificultou: str, retro_acoes: str) -> dict:
+def encerrar_sprint(sprint_id: int, retro_bem: str, retro_dificultou: str, retro_acoes: str,
+                    atividades_transportar: list = None) -> dict:
     """
     Encerra a sprint: fica somente leitura. Demandas concluídas ficam
     associadas para sempre a essa sprint (histórico). Demandas pendentes
@@ -791,6 +976,19 @@ def encerrar_sprint(sprint_id: int, retro_bem: str, retro_dificultou: str, retro
                 (agora, int(item["id"])),
             )
         # concluída: fica congelada, associada a esta sprint (não mexe)
+
+    # Atividades internas escolhidas para seguir na próxima sprint: ficam
+    # marcadas aqui e são copiadas quando a próxima sprint do quadro for criada
+    # (a sprint encerrada mantém as dela, intactas, no histórico).
+    ids_transp = [int(i) for i in (atividades_transportar or []) if i is not None]
+    cur.execute("UPDATE atividades_internas SET transportar = 0 WHERE sprint_id = ?", (sprint_id,))
+    if ids_transp:
+        marcadores = ",".join("?" * len(ids_transp))
+        cur.execute(
+            f"UPDATE atividades_internas SET transportar = 1 WHERE sprint_id = ? AND id IN ({marcadores})",
+            (sprint_id, *ids_transp),
+        )
+    resumo["internas_transportadas"] = len(ids_transp)
 
     cur.execute("""
         UPDATE sprints SET

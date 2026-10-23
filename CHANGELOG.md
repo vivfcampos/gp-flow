@@ -1,5 +1,41 @@
 # Changelog — GP Flow
 
+## Atividades internas na próxima sprint + encerradas no Trace direto para o Kanban
+
+- **Encerrar sprint:** o popover de encerramento lista as atividades internas
+  da sprint com um checkbox cada (e "Marcar todas"). As marcadas são levadas
+  para a próxima sprint do quadro quando ela for criada — mantendo título,
+  responsável e tipo de entrada. Concluídas voltam para a coluna Sprint
+  (ex.: cerimônia recorrente); as demais mantêm a coluna e o impedimento.
+  A sprint encerrada continua com as dela no histórico.
+- A tela "sem sprint ativa" mostra quais atividades internas vão entrar na
+  nova sprint. Funciona mesmo se a página for recarregada entre encerrar e
+  criar (a marcação fica no banco: `atividades_internas.transportar`).
+- **Importação:** demandas Concluídas/Canceladas no Trace que estão no Backlog
+  não ficam mais na Classificação: vão direto para a coluna Concluído do
+  Kanban da sprint ativa (Planejada antes do ▶️ Iniciar, Paraquedas depois).
+  Sem sprint ativa, continuam virando conclusão avulsa.
+- Também entram nessa regra as demandas que já estavam paradas na
+  Classificação com Estado encerrado gravado no banco, mesmo que não venham
+  na planilha importada.
+- A automação (`automacao/importar_automatico.py`) passa a aplicar a mesma
+  regra: `mover_encerradas` agora é `true` por padrão no servidor.
+- Migração automática: coluna `transportar` em `atividades_internas`
+  (criada por `criar_tabelas()`, SQLite e Postgres).
+
+## Importação manual: encerradas no Trace vão para Concluído
+
+- Ao importar pela tela (aba 📥 Importar), demandas que vêm na planilha com
+  Estado Concluído/Cancelado são concluídas no GP Flow:
+  - na sprint do quadro → vão para a coluna Concluído do Kanban;
+  - no Backlog → viram conclusão avulsa (saem do Backlog);
+  - já concluídas ou de outro quadro → não são tocadas;
+  - desconhecidas no GP Flow → não são criadas.
+- O preview mostra o bloco "🏁 Encerradas no Trace" com o resumo e a lista.
+- A automação (`automacao/importar_automatico.py`) não muda: ela não envia
+  `mover_encerradas`, então só sincroniza os dados do Trace.
+- Sem migração de banco.
+
 ## v0.8.0 — Suporte a PostgreSQL (deploy na nuvem)
 
 - Nova camada `functions/db.py`: o app continua usando SQLite local por
